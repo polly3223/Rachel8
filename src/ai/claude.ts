@@ -8,7 +8,7 @@ export async function generateResponse(userMessage: string): Promise<string> {
     options: {
       systemPrompt: SYSTEM_PROMPT,
       model: "claude-sonnet-4-5-20250929",
-      maxTurns: 1,
+      maxTurns: Infinity,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
     },
