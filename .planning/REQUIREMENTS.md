@@ -88,37 +88,37 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MSG-01 | — | Pending |
-| MSG-02 | — | Pending |
-| MSG-03 | — | Pending |
-| SCHED-01 | — | Pending |
-| SCHED-02 | — | Pending |
-| SCHED-03 | — | Pending |
-| SCHED-04 | — | Pending |
-| SCHED-05 | — | Pending |
-| FILE-01 | — | Pending |
-| FILE-02 | — | Pending |
-| FILE-03 | — | Pending |
-| FILE-04 | — | Pending |
-| INTEL-01 | — | Pending |
-| INTEL-02 | — | Pending |
-| INTEL-03 | — | Pending |
-| SYS-01 | — | Pending |
-| SYS-02 | — | Pending |
-| SYS-03 | — | Pending |
-| SETUP-01 | — | Pending |
-| SETUP-02 | — | Pending |
-| SETUP-03 | — | Pending |
-| SETUP-04 | — | Pending |
-| SETUP-05 | — | Pending |
-| SETUP-06 | — | Pending |
-| SETUP-07 | — | Pending |
+| SETUP-01 | Phase 1 | Pending |
+| SETUP-02 | Phase 1 | Pending |
+| SETUP-03 | Phase 1 | Pending |
+| SETUP-04 | Phase 1 | Pending |
+| SETUP-05 | Phase 1 | Pending |
+| SETUP-06 | Phase 1 | Pending |
+| SETUP-07 | Phase 1 | Pending |
+| SYS-03 | Phase 1 | Pending |
+| MSG-01 | Phase 2 | Pending |
+| MSG-02 | Phase 2 | Pending |
+| SYS-01 | Phase 2 | Pending |
+| INTEL-01 | Phase 3 | Pending |
+| INTEL-02 | Phase 3 | Pending |
+| INTEL-03 | Phase 3 | Pending |
+| SCHED-01 | Phase 4 | Pending |
+| SCHED-02 | Phase 4 | Pending |
+| SCHED-03 | Phase 4 | Pending |
+| SCHED-04 | Phase 4 | Pending |
+| SCHED-05 | Phase 4 | Pending |
+| MSG-03 | Phase 4 | Pending |
+| FILE-01 | Phase 5 | Pending |
+| FILE-02 | Phase 5 | Pending |
+| FILE-03 | Phase 5 | Pending |
+| FILE-04 | Phase 5 | Pending |
+| SYS-02 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25 ⚠️
+- Mapped to phases: 25
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-10*
-*Last updated: 2026-02-10 after initial definition*
+*Last updated: 2026-02-10 after roadmap creation*
