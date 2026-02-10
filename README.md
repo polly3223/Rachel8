@@ -34,20 +34,29 @@ curl -fsSL https://bun.sh/install | bash
 source ~/.bashrc
 ```
 
-### 4. Install git
+### 4. Install git and Node.js
 
 ```bash
-sudo apt update && sudo apt install -y git
+sudo apt update && sudo apt install -y git nodejs npm
 ```
 
-### 5. Create shared folder (for Syncthing integration)
+### 5. Install Claude Code CLI
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude login
+```
+
+Follow the prompts to authenticate with your Claude subscription.
+
+### 6. Create shared folder (for Syncthing integration)
 
 ```bash
 sudo mkdir -p /data/shared/vault
 sudo chown $USER:$USER /data/shared/vault
 ```
 
-### 6. Configure Syncthing (optional)
+### 7. Configure Syncthing (optional)
 
 Syncthing keeps the shared vault in sync between your VPS and local machine.
 
@@ -56,13 +65,13 @@ Syncthing keeps the shared vault in sync between your VPS and local machine.
 - On local machine: sync to `~/RachelShared/vault`
 - See [Syncthing Getting Started](https://docs.syncthing.net/intro/getting-started.html) for detailed instructions
 
-### 7. Install Rachel8
+### 8. Install Rachel8
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/OWNER/rachel8/main/scripts/install.sh | bash
 ```
 
-### 8. Follow the setup wizard
+### 9. Follow the setup wizard
 
 The wizard will ask for your API keys and configure everything. See [What You'll Need](#what-youll-need) below.
 
@@ -70,9 +79,9 @@ The wizard will ask for your API keys and configure everything. See [What You'll
 
 Before running the setup wizard, have these ready:
 
-- **Claude API key** -- Get from https://console.anthropic.com/settings/keys
-  - Sign up for an Anthropic account if needed
-  - Create an API key (starts with `sk-ant-api03-`)
+- **Claude Code CLI** -- Rachel uses the Claude Agent SDK (powered by your Claude subscription):
+  1. Install: `npm install -g @anthropic-ai/claude-code`
+  2. Log in: `claude login` (uses your Claude Max/Pro subscription)
 
 - **Telegram bot token** -- Create via @BotFather on Telegram:
   1. Open Telegram, search for `@BotFather`
@@ -121,14 +130,20 @@ sudo systemctl start rachel8
 rachel8/
 ├── src/
 │   ├── index.ts              # Entry point — starts Rachel
+│   ├── ai/
+│   │   └── claude.ts         # Claude Agent SDK client
 │   ├── config/
 │   │   └── env.ts            # Zod-validated environment config
+│   ├── telegram/
+│   │   ├── bot.ts            # grammY bot instance and middleware
+│   │   ├── handlers/
+│   │   │   └── message.ts    # Text message handler
+│   │   └── middleware/
+│   │       └── auth.ts       # Single-user auth guard
 │   ├── setup/
 │   │   ├── wizard.ts         # Interactive setup wizard
 │   │   ├── install.ts        # systemd service installer
-│   │   └── validate.ts       # API key format validators
-│   ├── cli/
-│   │   └── mock.ts           # CLI/mock mode for local dev
+│   │   └── validate.ts       # Format validators
 │   └── lib/
 │       └── logger.ts         # Thin logging wrapper
 ├── scripts/
