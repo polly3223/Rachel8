@@ -9,6 +9,10 @@ export const envSchema = z.object({
     message:
       "Invalid format. Expected: 123456789:ABCdef... Get yours from @BotFather on Telegram",
   }),
+  OWNER_TELEGRAM_USER_ID: z.coerce.number().int().positive({
+    message:
+      "Must be a positive integer. Send /start to @userinfobot on Telegram to find your user ID",
+  }),
   EXA_API_KEY: z.string().min(10, {
     message:
       "Must be at least 10 characters. Get your key at https://dashboard.exa.ai/api-keys",

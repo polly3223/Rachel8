@@ -41,6 +41,16 @@ export function validateExaKey(
   return undefined;
 }
 
+export function validateOwnerUserId(
+  value: string | undefined,
+): string | undefined {
+  if (!value || value.length === 0) return "User ID is required";
+  if (!/^\d+$/.test(value)) return "Must be a number. Send /start to @userinfobot on Telegram";
+  const num = Number(value);
+  if (num <= 0 || !Number.isInteger(num)) return "Must be a positive integer";
+  return undefined;
+}
+
 export function validateFolderPath(
   value: string | undefined,
 ): string | undefined {
