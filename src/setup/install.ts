@@ -26,7 +26,12 @@ export async function installSystemdService(): Promise<void> {
   // Detect runtime info
   const user = Bun.env["USER"] ?? "root";
   const home = Bun.env["HOME"] ?? `/home/${user}`;
-  const bunPath = Bun.which("bun") ?? `${home}/.bun/bin/bun`;
+  // Prefer the standard install location — Bun.which() can resolve to a
+  // temporary path (e.g. /tmp/bun-node-*) that won't survive a reboot.
+  const standardBunPath = `${home}/.bun/bin/bun`;
+  const bunPath = (await Bun.file(standardBunPath).exists())
+    ? standardBunPath
+    : (Bun.which("bun") ?? standardBunPath);
 
   // Replace placeholders
   template = template.replaceAll("__USER__", user);
