@@ -10,7 +10,7 @@ export async function handleMessage(ctx: BotContext): Promise<void> {
   ctx.chatAction = "typing";
 
   try {
-    const response = await generateResponse(text);
+    const response = await generateResponse(ctx.chat.id, text);
     await ctx.reply(response);
   } catch (error) {
     logger.error("Failed to generate response", {

@@ -2,7 +2,15 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const SYSTEM_PROMPT = `You are Rachel, a personal AI assistant. You are helpful, concise, and friendly. You communicate via Telegram, so keep responses reasonably brief unless asked for detail.`;
 
-export async function generateResponse(userMessage: string): Promise<string> {
+// Map Telegram chatId -> Agent SDK session ID for conversation memory
+const sessions = new Map<number, string>();
+
+export async function generateResponse(
+  chatId: number,
+  userMessage: string,
+): Promise<string> {
+  const existingSessionId = sessions.get(chatId);
+
   const conversation = query({
     prompt: userMessage,
     options: {
@@ -11,11 +19,15 @@ export async function generateResponse(userMessage: string): Promise<string> {
       maxTurns: Infinity,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      ...(existingSessionId ? { resume: existingSessionId } : {}),
     },
   });
 
   for await (const message of conversation) {
     if (message.type === "result") {
+      // Store session ID so the next message resumes this conversation
+      sessions.set(chatId, message.session_id);
+
       if (message.subtype === "success") {
         return message.result;
       }
