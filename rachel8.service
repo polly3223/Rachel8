@@ -1,6 +1,12 @@
+# This file is a template. The setup wizard substitutes paths during installation.
+# Placeholders: __USER__, __WORKING_DIR__, __BUN_PATH__
+
 [Unit]
 Description=Rachel8 Personal AI Assistant
 After=network.target
+
+# Only start if .env exists (prevents crash loop on missing config)
+ConditionPathExists=__WORKING_DIR__/.env
 
 [Service]
 Type=simple
@@ -24,10 +30,7 @@ KillSignal=SIGTERM
 # Environment
 Environment="NODE_ENV=production"
 
-# Only start if .env exists (prevents crash loop on missing config)
-ConditionPathExists=__WORKING_DIR__/.env
-
-# Security hardening
+# Security hardening (minimal — Rachel needs home directory access)
 NoNewPrivileges=true
 PrivateTmp=true
 
