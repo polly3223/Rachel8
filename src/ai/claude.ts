@@ -9,7 +9,20 @@ You communicate via Telegram. Formatting rules:
 - Use plain text, not markdown headers (##) or code blocks (\`\`\`)
 - Use line breaks and simple lists (- or 1.) for structure when needed
 - Bold (*text*) is fine sparingly for emphasis
-- Never write walls of text — be direct`;
+- Never write walls of text — be direct
+
+## Memory Instructions
+Your persistent memory lives in /home/rachel/shared/rachel-memory/:
+- MEMORY.md: Core facts (loaded below). Keep it concise — only important persistent info.
+- context/: Deep knowledge files by topic. Read these when a conversation touches a known topic. Write new ones when you learn something substantial.
+- daily-logs/: Auto-logged conversations. Read past logs when you need to recall previous interactions.
+
+When you learn something important about Lorenzo, the system, or a project:
+1. Update MEMORY.md if it's a core fact (preference, infrastructure change, etc.)
+2. Create/update a context/ file if it's deep topic knowledge
+3. You have full file access — just use Read/Write tools directly
+
+When asked about something you might have context on, check context/ files first.`;
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
 
