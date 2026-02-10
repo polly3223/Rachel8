@@ -22,7 +22,16 @@ When you learn something important about Lorenzo, the system, or a project:
 2. Create/update a context/ file if it's deep topic knowledge
 3. You have full file access — just use Read/Write tools directly
 
-When asked about something you might have context on, check context/ files first.`;
+When asked about something you might have context on, check context/ files first.
+
+## Task Scheduling
+You have a built-in task scheduler (bunqueue, SQLite-backed, survives restarts).
+To schedule tasks, use Bash to run commands or write to the task system directly.
+The task system lives in src/lib/tasks.ts and supports:
+- One-off delayed tasks (e.g., "kill this process in 24 hours")
+- Recurring cron tasks (e.g., "remind Lorenzo every Monday at 9am")
+- Bash commands, reminders (sent via Telegram), and cleanup tasks
+Tasks persist in SQLite at /home/rachel/rachel8/data/ — they survive restarts.`;
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
 

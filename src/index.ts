@@ -9,6 +9,7 @@ import { bot } from "./telegram/bot.ts";
 import { env } from "./config/env.ts";
 import { logger } from "./lib/logger.ts";
 import { initializeMemorySystem } from "./lib/memory.ts";
+import { setTelegramSender, shutdownTasks } from "./lib/tasks.ts";
 
 // -- Startup ------------------------------------------------------------------
 
@@ -22,11 +23,21 @@ logger.info("Configuration loaded", {
 // Initialize memory system
 await initializeMemorySystem();
 
+// Connect task system to Telegram so it can send reminders
+setTelegramSender(async (text: string) => {
+  await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);
+});
+
 // -- Graceful shutdown --------------------------------------------------------
 // Use process.once (not .on) to prevent multiple shutdown attempts
 
-process.once("SIGTERM", () => bot.stop()); // systemd sends this on `systemctl stop`
-process.once("SIGINT", () => bot.stop()); // Ctrl+C in terminal
+async function shutdown(): Promise<void> {
+  await shutdownTasks();
+  bot.stop();
+}
+
+process.once("SIGTERM", () => void shutdown()); // systemd sends this on `systemctl stop`
+process.once("SIGINT", () => void shutdown()); // Ctrl+C in terminal
 
 // -- Start bot ----------------------------------------------------------------
 // Long polling keeps the process alive -- replaces the old setInterval keepalive.
