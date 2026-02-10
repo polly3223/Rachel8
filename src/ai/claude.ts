@@ -1,7 +1,8 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../lib/logger.ts";
+import { appendToDailyLog, buildSystemPromptWithMemory } from "../lib/memory.ts";
 
-const SYSTEM_PROMPT = `You are Rachel, a personal AI assistant. You are helpful, concise, and friendly.
+const BASE_SYSTEM_PROMPT = `You are Rachel, a personal AI assistant. You are helpful, concise, and friendly.
 
 You communicate via Telegram. Formatting rules:
 - Keep responses short and conversational
@@ -45,10 +46,16 @@ export async function generateResponse(
 ): Promise<string> {
   const existingSessionId = sessions.get(chatId);
 
+  // Log user message to daily log
+  await appendToDailyLog("user", userMessage);
+
+  // Build system prompt with memory context
+  const systemPrompt = await buildSystemPromptWithMemory(BASE_SYSTEM_PROMPT);
+
   const conversation = query({
     prompt: userMessage,
     options: {
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
       model: "claude-sonnet-4-5-20250929",
       maxTurns: Infinity,
       permissionMode: "bypassPermissions",
@@ -64,6 +71,8 @@ export async function generateResponse(
       await saveSessions();
 
       if (message.subtype === "success") {
+        // Log assistant response to daily log
+        await appendToDailyLog("assistant", message.result);
         return message.result;
       }
       const errors = "errors" in message ? message.errors : [];

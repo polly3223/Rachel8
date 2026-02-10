@@ -8,6 +8,7 @@
 import { bot } from "./telegram/bot.ts";
 import { env } from "./config/env.ts";
 import { logger } from "./lib/logger.ts";
+import { initializeMemorySystem } from "./lib/memory.ts";
 
 // -- Startup ------------------------------------------------------------------
 
@@ -17,6 +18,9 @@ logger.info("Configuration loaded", {
   sharedFolder: env.SHARED_FOLDER_PATH,
   logLevel: env.LOG_LEVEL,
 });
+
+// Initialize memory system
+await initializeMemorySystem();
 
 // -- Graceful shutdown --------------------------------------------------------
 // Use process.once (not .on) to prevent multiple shutdown attempts
