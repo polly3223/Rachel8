@@ -31,10 +31,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Setup wizard detects or asks for shared folder path on VPS
   4. Rachel runs as systemd service and auto-restarts after crash or reboot
   5. README contains complete VPS setup instructions from zero to running
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- TBD (will be defined during `/gsd:plan-phase 1`)
+- [ ] 01-01-PLAN.md — Project scaffolding, config validation, logger
+- [ ] 01-02-PLAN.md — Setup wizard, validators, systemd installer, entry point
+- [ ] 01-03-PLAN.md — Install script, systemd service template, README
 
 ### Phase 2: Telegram Integration & Auth
 **Goal**: User can send messages to Rachel via Telegram and receive intelligent responses, with single-user authentication enforced
@@ -114,7 +116,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Deployment | 0/TBD | Not started | - |
+| 1. Foundation & Deployment | 0/3 | Planned | - |
 | 2. Telegram Integration & Auth | 0/TBD | Not started | - |
 | 3. Agent Intelligence | 0/TBD | Not started | - |
 | 4. Reliable Scheduling | 0/TBD | Not started | - |
