@@ -25,8 +25,8 @@ main() {
   fi
 
   if ! command -v claude >/dev/null 2>&1; then
-    echo "Error: Claude Code CLI is required but not installed."
-    echo "Install it: npm install -g @anthropic-ai/claude-code"
+    echo "Error: Claude Code is required but not installed."
+    echo "Install it: curl -fsSL https://claude.ai/install.sh | bash"
     echo "Then log in: claude login"
     exit 1
   fi

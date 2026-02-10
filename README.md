@@ -34,20 +34,20 @@ curl -fsSL https://bun.sh/install | bash
 source ~/.bashrc
 ```
 
-### 4. Install git and Node.js
+### 4. Install git
 
 ```bash
-sudo apt update && sudo apt install -y git nodejs npm
+sudo apt update && sudo apt install -y git
 ```
 
-### 5. Install Claude Code CLI
+### 5. Install Claude Code
 
 ```bash
-npm install -g @anthropic-ai/claude-code
+curl -fsSL https://claude.ai/install.sh | bash
 claude login
 ```
 
-Follow the prompts to authenticate with your Claude subscription.
+Log in with your Claude Max/Pro subscription. Rachel uses the Claude Agent SDK which runs through Claude Code.
 
 ### 6. Create shared folder (for Syncthing integration)
 
@@ -79,8 +79,8 @@ The wizard will ask for your API keys and configure everything. See [What You'll
 
 Before running the setup wizard, have these ready:
 
-- **Claude Code CLI** -- Rachel uses the Claude Agent SDK (powered by your Claude subscription):
-  1. Install: `npm install -g @anthropic-ai/claude-code`
+- **Claude Code** -- Rachel uses the Claude Agent SDK (powered by your Claude subscription):
+  1. Install: `curl -fsSL https://claude.ai/install.sh | bash`
   2. Log in: `claude login` (uses your Claude Max/Pro subscription)
 
 - **Telegram bot token** -- Create via @BotFather on Telegram:
