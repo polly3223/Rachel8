@@ -9,8 +9,7 @@ export async function generateResponse(userMessage: string): Promise<string> {
       systemPrompt: SYSTEM_PROMPT,
       model: "claude-sonnet-4-5-20250929",
       maxTurns: 1,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      allowedTools: [],
     },
   });
 
