@@ -1,0 +1,40 @@
+[Unit]
+Description=Rachel8 Personal AI Assistant
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__WORKING_DIR__
+ExecStart=__BUN_PATH__ run src/index.ts
+Restart=always
+RestartSec=5s
+RestartSteps=5
+RestartMaxDelaySec=60s
+
+# Rate limiting: max 5 restarts in 300s window
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Graceful shutdown
+TimeoutStopSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Environment
+Environment="NODE_ENV=production"
+
+# Only start if .env exists (prevents crash loop on missing config)
+ConditionPathExists=__WORKING_DIR__/.env
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging: stdout/stderr go to journalctl
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rachel8
+
+[Install]
+WantedBy=multi-user.target
