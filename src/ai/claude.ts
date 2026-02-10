@@ -56,7 +56,7 @@ export async function generateResponse(
     prompt: userMessage,
     options: {
       systemPrompt,
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-opus-4-6",
       maxTurns: Infinity,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
