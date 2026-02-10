@@ -5,24 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-02-10)
 
 **Core value:** When Rachel is told to do something at a specific time, she does it — no forgetting, no excuses.
-**Current focus:** Phase 1 complete — ready for Phase 2
+**Current focus:** Phase 2 in progress — Telegram Integration & Auth
 
 ## Current Position
 
-**Phase:** 1 of 6 (Foundation & Deployment)
-**Current Plan:** 3
-**Total Plans in Phase:** 3
-**Status:** Phase 1 verified and complete
+**Phase:** 2 of 6 (Telegram Integration & Auth)
+**Current Plan:** 1
+**Total Plans in Phase:** 2
+**Status:** Plan 1 complete
 **Last Activity:** 2026-02-10
 
-Progress: [██████████] 100% — Phase 1 complete
+Progress: [█████-----] 50% — Plan 1 of 2 complete
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 4
 - Average duration: 3min
-- Total execution time: 9min
+- Total execution time: 11min
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [██████████] 100% — Phase 1 complete
 |-------|------|----------|-------|-------|
 | 01 | 01 | 3min | 2 | 8 |
 | 01 | 02 | 4min | 3 | 6 |
-
 | 01 | 03 | 2min | 2 | 3 |
+| 02 | 01 | 2min | 2 | 8 |
 
 **Recent Trend:**
-- Last 5 plans: 3min, 4min, 2min
+- Last 5 plans: 3min, 4min, 2min, 2min
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -53,6 +53,9 @@ Recent decisions affecting current work:
 - [Phase 01]: systemd service template uses replaceable placeholders for portability
 - [Phase 01]: Entry point uses setInterval keepalive (replaced by Bun.serve() in later phases)
 - [Phase 01]: Kept __PLACEHOLDER__ system in rachel8.service to avoid breaking install.ts replaceAll() from Plan 02
+- [Phase 02]: Silent ignore for unauthorized Telegram users (no response reveals bot existence)
+- [Phase 02]: z.coerce.number() for OWNER_TELEGRAM_USER_ID (env vars are strings, Telegram IDs are numbers)
+- [Phase 02]: Middleware order: authGuard before autoChatAction (no typing indicator for unauthorized users)
 
 ### Pending Todos
 
@@ -65,6 +68,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Phase 1 verified and complete (6/6 must-haves passed)
+Stopped at: Completed 02-01-PLAN.md (Telegram bot setup with auth middleware)
 Resume file: None
-Next step: Run `/gsd:plan-phase 2` to begin Telegram Integration & Auth
+Next step: Execute 02-02-PLAN.md (message handling and bot startup)
