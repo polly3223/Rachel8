@@ -30,8 +30,8 @@ KillSignal=SIGTERM
 # Environment
 Environment="NODE_ENV=production"
 
-# Security hardening (minimal — Rachel needs home directory access)
-NoNewPrivileges=true
+# Rachel needs full sudo access for shell commands (Phase 6)
+# NoNewPrivileges intentionally omitted — required for sudo escalation
 PrivateTmp=true
 
 # Logging: stdout/stderr go to journalctl
