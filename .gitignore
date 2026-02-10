@@ -4,6 +4,9 @@ node_modules/
 # Environment
 .env
 
+# Session persistence
+.sessions.json
+
 # Build output
 dist/
 

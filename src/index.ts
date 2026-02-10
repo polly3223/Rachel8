@@ -29,5 +29,14 @@ process.once("SIGINT", () => bot.stop()); // Ctrl+C in terminal
 // bot.start() returns a Promise that resolves when bot.stop() is called.
 
 await bot.start({
-  onStart: () => logger.info("Rachel8 is running. Listening for messages..."),
+  onStart: async () => {
+    logger.info("Rachel8 is running. Listening for messages...");
+    try {
+      await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online!");
+    } catch (err) {
+      logger.warn("Could not send startup message", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
 });
