@@ -47,10 +47,11 @@ Plans:
   2. Rachel shows typing indicator while processing messages
   3. Only the owner's Telegram user ID can interact with Rachel (single-user auth works)
   4. Messages from unauthorized users are ignored or receive rejection message
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- TBD
+- [ ] 02-01-PLAN.md — Config, dependencies, bot instance, auth middleware
+- [ ] 02-02-PLAN.md — Claude AI client, message handler, entry point wiring
 
 ### Phase 3: Agent Intelligence
 **Goal**: Rachel maintains conversation context, searches the web for information, and writes important facts to vault for long-term memory
