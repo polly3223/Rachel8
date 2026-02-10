@@ -12,7 +12,7 @@ Rachel8 rebuilds a personal AI assistant from the ground up with one core promis
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation & Deployment** - VPS setup, project scaffolding, systemd service
+- [x] **Phase 1: Foundation & Deployment** - VPS setup, project scaffolding, systemd service
 - [ ] **Phase 2: Telegram Integration & Auth** - grammY webhook, basic chat, single-user auth
 - [ ] **Phase 3: Agent Intelligence** - Claude SDK integration, conversation memory, web search
 - [ ] **Phase 4: Reliable Scheduling** - BunQueue with heartbeat, reminders, cron jobs, proactive messaging
@@ -34,9 +34,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffolding, config validation, logger
-- [ ] 01-02-PLAN.md — Setup wizard, validators, systemd installer, entry point
-- [ ] 01-03-PLAN.md — Install script, systemd service template, README
+- [x] 01-01-PLAN.md — Project scaffolding, config validation, logger
+- [x] 01-02-PLAN.md — Setup wizard, validators, systemd installer, entry point
+- [x] 01-03-PLAN.md — Install script, systemd service template, README
 
 ### Phase 2: Telegram Integration & Auth
 **Goal**: User can send messages to Rachel via Telegram and receive intelligent responses, with single-user authentication enforced
@@ -116,7 +116,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Deployment | 0/3 | Planned | - |
+| 1. Foundation & Deployment | 3/3 | ✓ Complete | 2026-02-10 |
 | 2. Telegram Integration & Auth | 0/TBD | Not started | - |
 | 3. Agent Intelligence | 0/TBD | Not started | - |
 | 4. Reliable Scheduling | 0/TBD | Not started | - |
