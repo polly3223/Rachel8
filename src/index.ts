@@ -1,40 +1,33 @@
 /**
  * Rachel8 entry point.
  *
- * Validates configuration via Zod, registers graceful shutdown handlers,
- * and keeps the process alive for systemd. Later phases will add the
- * Telegram bot, agent SDK, and queue workers here.
+ * Starts the Telegram bot in long polling mode. The bot authenticates
+ * the owner, shows typing indicators, and responds via Claude.
  */
 
+import { bot } from "./telegram/bot.ts";
 import { env } from "./config/env.ts";
 import { logger } from "./lib/logger.ts";
 
-// ── Startup ──────────────────────────────────────────────────────────────────
+// -- Startup ------------------------------------------------------------------
 
 logger.info("Rachel8 starting...", { env: env.NODE_ENV });
 
-// Log config summary (never log API keys or secrets)
 logger.info("Configuration loaded", {
   sharedFolder: env.SHARED_FOLDER_PATH,
   logLevel: env.LOG_LEVEL,
 });
 
-// ── Graceful shutdown ────────────────────────────────────────────────────────
+// -- Graceful shutdown --------------------------------------------------------
+// Use process.once (not .on) to prevent multiple shutdown attempts
 
-function shutdown(): void {
-  logger.info("Shutting down...");
-  process.exit(0);
-}
+process.once("SIGTERM", () => bot.stop()); // systemd sends this on `systemctl stop`
+process.once("SIGINT", () => bot.stop()); // Ctrl+C in terminal
 
-process.on("SIGTERM", shutdown); // systemd sends this on `systemctl stop`
-process.on("SIGINT", shutdown); // Ctrl+C in terminal
+// -- Start bot ----------------------------------------------------------------
+// Long polling keeps the process alive -- replaces the old setInterval keepalive.
+// bot.start() returns a Promise that resolves when bot.stop() is called.
 
-// ── Keep alive ───────────────────────────────────────────────────────────────
-// Process stays alive for systemd. Later phases replace this with
-// Bun.serve() for the grammY webhook and queue workers.
-
-setInterval(() => {
-  logger.debug("heartbeat");
-}, 60_000);
-
-logger.info("Rachel8 is running. Waiting for connections...");
+await bot.start({
+  onStart: () => logger.info("Rachel8 is running. Listening for messages..."),
+});
