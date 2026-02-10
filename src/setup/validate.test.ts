@@ -1,58 +1,9 @@
 import { describe, test, expect } from "bun:test";
 import {
-  validateAnthropicKey,
   validateTelegramToken,
   validateExaKey,
   validateFolderPath,
 } from "./validate.ts";
-
-describe("validateAnthropicKey", () => {
-  test("accepts valid key format", () => {
-    expect(
-      validateAnthropicKey("sk-ant-api03-abc123_DEF-456"),
-    ).toBeUndefined();
-  });
-
-  test("accepts key with long body", () => {
-    expect(
-      validateAnthropicKey(
-        "sk-ant-api03-aaaaaaaaaa_BBBBBBB-CCCCCCCC_1234567890",
-      ),
-    ).toBeUndefined();
-  });
-
-  test("rejects empty string", () => {
-    expect(validateAnthropicKey("")).toBe("API key is required");
-  });
-
-  test("rejects undefined", () => {
-    expect(validateAnthropicKey(undefined)).toBe("API key is required");
-  });
-
-  test("rejects wrong prefix", () => {
-    expect(validateAnthropicKey("sk-ant-abc123")).toBe(
-      "Invalid format. Claude API keys start with sk-ant-api03-",
-    );
-  });
-
-  test("rejects prefix only (no body)", () => {
-    expect(validateAnthropicKey("sk-ant-api03-")).toBe(
-      "Invalid format. Claude API keys start with sk-ant-api03-",
-    );
-  });
-
-  test("rejects arbitrary string", () => {
-    expect(validateAnthropicKey("invalid")).toBe(
-      "Invalid format. Claude API keys start with sk-ant-api03-",
-    );
-  });
-
-  test("rejects key with spaces", () => {
-    expect(validateAnthropicKey("sk-ant-api03-abc def")).toBe(
-      "Invalid format. Claude API keys start with sk-ant-api03-",
-    );
-  });
-});
 
 describe("validateTelegramToken", () => {
   test("accepts valid token format", () => {

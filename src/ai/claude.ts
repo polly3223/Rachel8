@@ -1,18 +1,30 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { env } from "../config/env.ts";
-
-const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const SYSTEM_PROMPT = `You are Rachel, a personal AI assistant. You are helpful, concise, and friendly. You communicate via Telegram, so keep responses reasonably brief unless asked for detail.`;
 
 export async function generateResponse(userMessage: string): Promise<string> {
-  const message = await client.messages.create({
-    model: "claude-sonnet-4-5-20250929",
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
+  const conversation = query({
+    prompt: userMessage,
+    options: {
+      systemPrompt: SYSTEM_PROMPT,
+      model: "claude-sonnet-4-5-20250929",
+      maxTurns: 1,
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+    },
   });
 
-  const textBlock = message.content.find((block) => block.type === "text");
-  return textBlock?.text ?? "I'm sorry, I couldn't generate a response.";
+  for await (const message of conversation) {
+    if (message.type === "result") {
+      if (message.subtype === "success") {
+        return message.result;
+      }
+      const errors = "errors" in message ? message.errors : [];
+      throw new Error(
+        (errors as string[])?.join(", ") ?? "Unknown error from Claude",
+      );
+    }
+  }
+
+  return "I'm sorry, I couldn't generate a response.";
 }

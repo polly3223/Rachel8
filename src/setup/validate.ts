@@ -8,18 +8,7 @@
  * Format-check only -- no live API calls (user decision).
  */
 
-const ANTHROPIC_KEY_RE = /^sk-ant-api03-[a-zA-Z0-9_-]+$/;
 const TELEGRAM_TOKEN_RE = /^\d{8,}:[A-Za-z0-9_-]{35,}$/;
-
-export function validateAnthropicKey(
-  value: string | undefined,
-): string | undefined {
-  if (!value || value.length === 0) return "API key is required";
-  if (!ANTHROPIC_KEY_RE.test(value)) {
-    return "Invalid format. Claude API keys start with sk-ant-api03-";
-  }
-  return undefined;
-}
 
 export function validateTelegramToken(
   value: string | undefined,

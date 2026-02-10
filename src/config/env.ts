@@ -2,9 +2,6 @@ import { existsSync } from "node:fs";
 import { z } from "zod";
 
 export const envSchema = z.object({
-  ANTHROPIC_API_KEY: z.string().startsWith("sk-ant-", {
-    message: "Must start with 'sk-ant-'. Get your key at https://console.anthropic.com/settings/keys",
-  }),
   TELEGRAM_BOT_TOKEN: z.string().regex(/^\d{8,}:[A-Za-z0-9_-]{35,}$/, {
     message:
       "Invalid format. Expected: 123456789:ABCdef... Get yours from @BotFather on Telegram",
