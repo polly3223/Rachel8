@@ -4,52 +4,94 @@ Personal AI assistant on Telegram, powered by Claude. Runs 24/7 on your VPS with
 
 Rachel uses the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — no API key needed, works with your Claude Max/Pro subscription.
 
-## Setup (fresh server)
+## Setup (fresh VPS)
 
-### 1. Install Bun
+All commands below assume a fresh Ubuntu server. Run everything in order.
+
+### 1. Create the `rachel` user (as root)
+
+SSH in as root, then create a dedicated user with passwordless sudo. Rachel's Agent SDK requires a non-root user, but she needs sudo for shell commands.
 
 ```bash
+adduser rachel --ingroup users --disabled-password
+echo 'rachel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/rachel
+chmod 0440 /etc/sudoers.d/rachel
+```
+
+Press Enter through the Full Name / Room / Phone prompts. Then switch to the new user:
+
+```bash
+su - rachel
+```
+
+**All remaining steps run as `rachel`.**
+
+### 2. Install system dependencies, GitHub CLI, and Bun
+
+```bash
+sudo apt update && sudo apt install -y unzip gh
 curl -fsSL https://bun.sh/install | bash
 source ~/.bashrc
 ```
 
-### 2. Install GitHub CLI and log in
+### 3. Log in to GitHub
 
 ```bash
-sudo apt update && sudo apt install -y gh
 gh auth login
 ```
 
 Follow the prompts to authenticate with your GitHub account.
 
-### 3. Install Claude Code and log in
+### 4. Install Claude Code and log in
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
+source ~/.bashrc
 claude login
 ```
 
 Follow the prompts to authenticate with your Claude Max/Pro subscription.
 
-### 4. Clone, install, and run setup
+Verify it works:
 
 ```bash
-gh repo clone OWNER/rachel8 ~/rachel8
+claude -p 'say hello'
+```
+
+### 5. Clone and install
+
+```bash
+gh repo clone polly3223/Rachel8 ~/rachel8
 cd ~/rachel8
 bun install
+```
+
+### 6. Run the setup wizard
+
+```bash
 bun run setup
 ```
 
-The setup wizard will ask for everything interactively:
+The wizard will ask for everything interactively:
 - **Telegram bot token** — create one via [@BotFather](https://t.me/BotFather) (`/newbot`)
 - **Your Telegram user ID** — send `/start` to [@userinfobot](https://t.me/userinfobot)
 - **Exa API key** — get from https://dashboard.exa.ai/api-keys
 - **Shared folder path** — auto-detects `/data/shared/vault` if it exists
 - **systemd service** — optionally installs and starts Rachel as a service
 
-### 5. Start Rachel
+### 7. Start Rachel
+
+If you installed the systemd service (recommended):
 
 ```bash
+sudo systemctl start rachel8
+sudo systemctl status rachel8
+```
+
+Or run manually:
+
+```bash
+cd ~/rachel8
 bun run start
 ```
 

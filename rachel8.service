@@ -8,6 +8,10 @@ After=network.target
 # Only start if .env exists (prevents crash loop on missing config)
 ConditionPathExists=__WORKING_DIR__/.env
 
+# Rate limiting: max 5 restarts in 300s window
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=__USER__
@@ -17,10 +21,6 @@ Restart=always
 RestartSec=5s
 RestartSteps=5
 RestartMaxDelaySec=60s
-
-# Rate limiting: max 5 restarts in 300s window
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # Graceful shutdown
 TimeoutStopSec=10
