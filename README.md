@@ -1,102 +1,69 @@
 # Rachel8
 
-Personal AI assistant on Telegram, powered by Claude Opus 4.6. Runs 24/7 on your VPS with reliable scheduled tasks, file management, and shell access.
+Personal AI assistant on Telegram, powered by Claude. Runs 24/7 on your VPS with reliable scheduled tasks, file management, and shell access.
 
-## Quick Start
+Rachel uses the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — no API key needed, works with your Claude Max/Pro subscription.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/rachel8/main/scripts/install.sh | bash
-```
+## Setup (fresh server)
 
-This clones the repo, installs dependencies, and launches the interactive setup wizard.
-
-## VPS Setup (from zero)
-
-Step-by-step for a fresh Hetzner VPS (or any Ubuntu/Debian server):
-
-### 1. Create VPS
-
-Create a server on [Hetzner Cloud](https://console.hetzner.cloud/) with Ubuntu 22.04+ and your preferred plan.
-
-### 2. SSH in and create a non-root user
-
-```bash
-ssh root@your-vps-ip
-adduser lory
-usermod -aG sudo lory
-su - lory
-```
-
-### 3. Install Bun
+### 1. Install Bun
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
 source ~/.bashrc
 ```
 
-### 4. Install git
+### 2. Install GitHub CLI and log in
 
 ```bash
-sudo apt update && sudo apt install -y git
+sudo apt update && sudo apt install -y gh
+gh auth login
 ```
 
-### 5. Install Claude Code
+Follow the prompts to authenticate with your GitHub account.
+
+### 3. Install Claude Code and log in
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
 claude login
 ```
 
-Log in with your Claude Max/Pro subscription. Rachel uses the Claude Agent SDK which runs through Claude Code.
+Follow the prompts to authenticate with your Claude Max/Pro subscription.
 
-### 6. Create shared folder (for Syncthing integration)
-
-```bash
-sudo mkdir -p /data/shared/vault
-sudo chown $USER:$USER /data/shared/vault
-```
-
-### 7. Configure Syncthing (optional)
-
-Syncthing keeps the shared vault in sync between your VPS and local machine.
-
-- Install Syncthing on both machines: https://syncthing.net/downloads/
-- On VPS: share `/data/shared/vault`
-- On local machine: sync to `~/RachelShared/vault`
-- See [Syncthing Getting Started](https://docs.syncthing.net/intro/getting-started.html) for detailed instructions
-
-### 8. Install Rachel8
+### 4. Clone, install, and run setup
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/rachel8/main/scripts/install.sh | bash
+gh repo clone OWNER/rachel8 ~/rachel8
+cd ~/rachel8
+bun install
+bun run setup
 ```
 
-### 9. Follow the setup wizard
+The setup wizard will ask for everything interactively:
+- **Telegram bot token** — create one via [@BotFather](https://t.me/BotFather) (`/newbot`)
+- **Your Telegram user ID** — send `/start` to [@userinfobot](https://t.me/userinfobot)
+- **Exa API key** — get from https://dashboard.exa.ai/api-keys
+- **Shared folder path** — auto-detects `/data/shared/vault` if it exists
+- **systemd service** — optionally installs and starts Rachel as a service
 
-The wizard will ask for your API keys and configure everything. See [What You'll Need](#what-youll-need) below.
+### 5. Start Rachel
 
-## What You'll Need
+```bash
+bun run start
+```
 
-Before running the setup wizard, have these ready:
+That's it. Send a message to your bot on Telegram.
 
-- **Claude Code** -- Rachel uses the Claude Agent SDK (powered by your Claude subscription):
-  1. Install: `curl -fsSL https://claude.ai/install.sh | bash`
-  2. Log in: `claude login` (uses your Claude Max/Pro subscription)
+## Before you start: create your Telegram bot
 
-- **Telegram bot token** -- Create via @BotFather on Telegram:
-  1. Open Telegram, search for `@BotFather`
-  2. Send `/newbot`
-  3. Choose a name (e.g., "Rachel")
-  4. Choose a username (e.g., "rachel8_bot")
-  5. Copy the token BotFather gives you (format: `123456789:ABC...`)
-
-- **Exa API key** -- Get from https://dashboard.exa.ai/api-keys
-  - Sign up for an Exa account
-  - Create an API key
+1. Open Telegram, search for `@BotFather`
+2. Send `/newbot`
+3. Choose a name (e.g., "Rachel")
+4. Choose a username (e.g., "rachel8_bot")
+5. Copy the token — you'll paste it into the setup wizard
 
 ## Development
-
-For local development:
 
 ```bash
 bun run dev          # Start with hot reload (bun --watch)
@@ -117,19 +84,12 @@ sudo journalctl -u rachel8 -f      # Follow logs
 sudo journalctl -u rachel8 -n 50   # Last 50 log lines
 ```
 
-After a crash loop, reset and restart:
-
-```bash
-sudo systemctl reset-failed rachel8
-sudo systemctl start rachel8
-```
-
 ## Project Structure
 
 ```
 rachel8/
 ├── src/
-│   ├── index.ts              # Entry point — starts Rachel
+│   ├── index.ts              # Entry point
 │   ├── ai/
 │   │   └── claude.ts         # Claude Agent SDK client
 │   ├── config/
@@ -146,12 +106,10 @@ rachel8/
 │   │   └── validate.ts       # Format validators
 │   └── lib/
 │       └── logger.ts         # Thin logging wrapper
-├── scripts/
-│   └── install.sh            # curl | bash one-liner installer
 ├── rachel8.service            # systemd unit file template
 ├── package.json
 ├── tsconfig.json
-├── .env.example               # Template for required env vars
+├── .env.example
 └── README.md
 ```
 
