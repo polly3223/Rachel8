@@ -14,16 +14,17 @@ import { Queue, Worker } from "bunqueue/client";
 import { $ } from "bun";
 import { logger } from "./logger.ts";
 
-const DATA_PATH = "/home/rachel/rachel8/data";
+const DATA_DIR = `${import.meta.dir}/../../data`;
+const DB_PATH = `${DATA_DIR}/tasks.db`;
 
 // Ensure data directory exists
 import { mkdirSync, existsSync } from "node:fs";
-if (!existsSync(DATA_PATH)) {
-  mkdirSync(DATA_PATH, { recursive: true });
+if (!existsSync(DATA_DIR)) {
+  mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Set DATA_PATH for bunqueue SQLite persistence
-process.env.DATA_PATH = DATA_PATH;
+// bunqueue reads this as the SQLite file path
+process.env.DATA_PATH = DB_PATH;
 
 // -- Types --------------------------------------------------------------------
 
