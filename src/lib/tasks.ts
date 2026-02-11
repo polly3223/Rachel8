@@ -11,6 +11,7 @@
  * - "bash": Run a shell command
  * - "reminder": Send a Telegram message to Lorenzo
  * - "cleanup": Kill processes by name
+ * - "agent": Trigger the AI agent with a prompt — Rachel does autonomous work
  */
 
 import { Database } from "bun:sqlite";
@@ -32,18 +33,42 @@ if (!existsSync(MEMORY_DIR)) {
 const db = new Database(DB_PATH);
 db.exec("PRAGMA journal_mode = WAL");
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('bash', 'reminder', 'cleanup')),
-    data TEXT NOT NULL DEFAULT '{}',
-    cron TEXT,
-    next_run INTEGER NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )
-`);
+// SQLite CHECK constraints can't be altered, so we recreate the table if needed
+// to support the new 'agent' type.
+const tableInfo = db.query("SELECT sql FROM sqlite_master WHERE name = 'tasks'").get() as { sql: string } | null;
+
+if (tableInfo && !tableInfo.sql.includes("agent")) {
+  // Migrate: recreate table with updated CHECK constraint
+  db.exec("ALTER TABLE tasks RENAME TO tasks_old");
+  db.exec(`
+    CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('bash', 'reminder', 'cleanup', 'agent')),
+      data TEXT NOT NULL DEFAULT '{}',
+      cron TEXT,
+      next_run INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    )
+  `);
+  db.exec("INSERT INTO tasks SELECT * FROM tasks_old");
+  db.exec("DROP TABLE tasks_old");
+  logger.info("Migrated tasks table to support 'agent' type");
+} else if (!tableInfo) {
+  db.exec(`
+    CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('bash', 'reminder', 'cleanup', 'agent')),
+      data TEXT NOT NULL DEFAULT '{}',
+      cron TEXT,
+      next_run INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    )
+  `);
+}
 
 // -- Cron parsing -------------------------------------------------------------
 
@@ -97,11 +122,18 @@ function getNextCronRun(pattern: string, after: number = Date.now()): number {
 // -- Telegram sender ----------------------------------------------------------
 
 let sendTelegramMessage: ((text: string) => Promise<void>) | null = null;
+let agentExecutor: ((prompt: string) => Promise<string>) | null = null;
 
 export function setTelegramSender(
   sender: (text: string) => Promise<void>,
 ): void {
   sendTelegramMessage = sender;
+}
+
+export function setAgentExecutor(
+  executor: (prompt: string) => Promise<string>,
+): void {
+  agentExecutor = executor;
 }
 
 // -- Task execution -----------------------------------------------------------
@@ -155,6 +187,30 @@ async function executeTask(task: TaskRow): Promise<void> {
       }
       break;
     }
+
+    case "agent": {
+      if (agentExecutor && sendTelegramMessage) {
+        try {
+          logger.info(`Agent task starting: ${task.name}`);
+          const result = await agentExecutor(parsed.prompt);
+          // Send the agent's response to Lorenzo via Telegram
+          await sendTelegramMessage(result);
+          logger.info(`Agent task completed: ${task.name}`);
+        } catch (error) {
+          logger.error(`Agent task failed: ${task.name}`, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          if (sendTelegramMessage) {
+            await sendTelegramMessage(
+              `Agent task "${task.name}" failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      } else {
+        logger.warn("Cannot run agent task — executor or Telegram sender not configured");
+      }
+      break;
+    }
   }
 }
 
@@ -199,7 +255,7 @@ export function startTaskPoller(): void {
 
 export function addTask(
   name: string,
-  type: "bash" | "reminder" | "cleanup",
+  type: "bash" | "reminder" | "cleanup" | "agent",
   data: Record<string, unknown>,
   options?: { cron?: string; delayMs?: number },
 ): void {

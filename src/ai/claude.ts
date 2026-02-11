@@ -30,7 +30,10 @@ To schedule tasks, write to the SQLite DB via a Bash one-liner — the running p
 The task system lives in src/lib/tasks.ts and supports:
 - One-off delayed tasks (e.g., "kill this process in 24 hours")
 - Recurring cron tasks (e.g., "remind Lorenzo every Monday at 9am")
-- Bash commands, reminders (sent via Telegram), and cleanup tasks
+- Bash commands, reminders (sent via Telegram), cleanup tasks, and *agent* tasks
+- Agent tasks (type: "agent") trigger you autonomously with a prompt — you execute with full tool access and send results to Lorenzo
+- Use agent tasks when the scheduled work requires AI reasoning (building things, research, complex multi-step work)
+- Use reminder tasks for simple text notifications
 Tasks persist in SQLite at /home/rachel/shared/rachel-memory/tasks.db — they survive restarts.
 
 ## Self-Management
