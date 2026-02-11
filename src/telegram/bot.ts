@@ -3,7 +3,7 @@ import { autoChatAction, type AutoChatActionFlavor } from "@grammyjs/auto-chat-a
 import { env } from "../config/env.ts";
 import { logger } from "../lib/logger.ts";
 import { authGuard } from "./middleware/auth.ts";
-import { handleMessage } from "./handlers/message.ts";
+import { handleMessage, handlePhoto, handleDocument } from "./handlers/message.ts";
 
 export type BotContext = Context & AutoChatActionFlavor;
 
@@ -16,8 +16,10 @@ bot.use(autoChatAction());
 // /start command — friendly greeting
 bot.command("start", (ctx) => ctx.reply("Hello! I'm Rachel, your personal AI assistant."));
 
-// Text message handler — sends user text to Claude and replies
+// Message handlers — text, photos, and documents
 bot.on("message:text", handleMessage);
+bot.on("message:photo", handlePhoto);
+bot.on("message:document", handleDocument);
 
 // Error handler — log and continue, don't crash the polling loop
 bot.catch((err) => {
