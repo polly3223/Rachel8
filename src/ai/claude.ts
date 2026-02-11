@@ -31,7 +31,7 @@ The task system lives in src/lib/tasks.ts and supports:
 - One-off delayed tasks (e.g., "kill this process in 24 hours")
 - Recurring cron tasks (e.g., "remind Lorenzo every Monday at 9am")
 - Bash commands, reminders (sent via Telegram), and cleanup tasks
-Tasks persist in SQLite at /home/rachel/rachel8/data/ — they survive restarts.`;
+Tasks persist in SQLite at /home/rachel/shared/rachel-memory/tasks.db — they survive restarts.`;
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
 

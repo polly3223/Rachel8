@@ -14,13 +14,16 @@ import { Queue, Worker } from "bunqueue/client";
 import { $ } from "bun";
 import { logger } from "./logger.ts";
 
-const DATA_DIR = `${import.meta.dir}/../../data`;
-const DB_PATH = `${DATA_DIR}/tasks.db`;
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { env } from "../config/env.ts";
 
-// Ensure data directory exists
-import { mkdirSync, existsSync } from "node:fs";
-if (!existsSync(DATA_DIR)) {
-  mkdirSync(DATA_DIR, { recursive: true });
+const MEMORY_DIR = join(env.SHARED_FOLDER_PATH, "rachel-memory");
+const DB_PATH = join(MEMORY_DIR, "tasks.db");
+
+// Ensure memory directory exists
+if (!existsSync(MEMORY_DIR)) {
+  mkdirSync(MEMORY_DIR, { recursive: true });
 }
 
 // bunqueue reads this as the SQLite file path

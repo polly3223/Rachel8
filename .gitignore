@@ -7,9 +7,6 @@ node_modules/
 # Session persistence
 .sessions.json
 
-# Task queue data (bunqueue SQLite)
-data/
-
 # Build output
 dist/
 
