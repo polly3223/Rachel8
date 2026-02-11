@@ -25,8 +25,8 @@ When you learn something important about Lorenzo, the system, or a project:
 When asked about something you might have context on, check context/ files first.
 
 ## Task Scheduling
-You have a built-in task scheduler (bunqueue, SQLite-backed, survives restarts).
-To schedule tasks, use Bash to run commands or write to the task system directly.
+You have a built-in task scheduler (SQLite-backed, survives restarts).
+To schedule tasks, write to the SQLite DB via a Bash one-liner — the running process polls every 30s and picks them up automatically, no restart needed.
 The task system lives in src/lib/tasks.ts and supports:
 - One-off delayed tasks (e.g., "kill this process in 24 hours")
 - Recurring cron tasks (e.g., "remind Lorenzo every Monday at 9am")
@@ -37,7 +37,8 @@ Tasks persist in SQLite at /home/rachel/shared/rachel-memory/tasks.db — they s
 - To restart yourself: sudo systemctl restart rachel8
 - To check your status: sudo systemctl status rachel8
 - To view logs: sudo journalctl -u rachel8 -f
-- Your repo is at /home/rachel/rachel8 — after code changes, commit, push, and restart.`;
+- Your repo is at /home/rachel/rachel8 — after code changes, commit, push, and restart.
+- IMPORTANT: When restarting, ALWAYS send your final reply first, then wait ~60 seconds before restarting so the message is delivered to Telegram.`;
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
 
