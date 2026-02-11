@@ -1,68 +1,67 @@
 /**
- * Quick script to schedule tasks from the command line.
- * Usage: bun run scripts/schedule.ts <action> [args]
+ * Schedule tasks from the command line.
+ * The running Rachel8 process polls the DB every 30s and picks them up.
+ * No restart needed!
  *
- * Writes to the same SQLite DB the main app uses, then restarts
- * Rachel8 so the worker picks up the new tasks.
+ * Usage:
+ *   bun run scripts/schedule.ts add <name> <type> <data-json> [--cron "pattern"] [--delay ms]
+ *   bun run scripts/schedule.ts remove <name>
+ *   bun run scripts/schedule.ts list
  */
 
-import { $ } from "bun";
-import { scheduleRecurring, scheduleTask, removeRecurring, shutdownTasks } from "../src/lib/tasks.ts";
+import { addTask, removeTask, listTasks, shutdownTasks } from "../src/lib/tasks.ts";
 
 const [action, ...args] = process.argv.slice(2);
 
-let needsRestart = false;
-
 switch (action) {
-  case "recurring": {
-    const [name, pattern, type, message] = args;
-    if (!name || !pattern || !type || !message) {
-      console.error("Usage: bun run scripts/schedule.ts recurring <name> <cron> <type> <message>");
+  case "add": {
+    const name = args[0];
+    const type = args[1] as "bash" | "reminder" | "cleanup";
+    const dataJson = args[2];
+
+    if (!name || !type || !dataJson) {
+      console.error('Usage: bun run scripts/schedule.ts add <name> <type> \'{"key":"val"}\' [--cron "* * * * *"] [--delay 5000]');
       process.exit(1);
     }
-    await scheduleRecurring(name, { type: type as "reminder", message }, pattern);
-    console.log(`Recurring task "${name}" scheduled with pattern "${pattern}"`);
-    needsRestart = true;
+
+    const data = JSON.parse(dataJson);
+    const cronIdx = args.indexOf("--cron");
+    const delayIdx = args.indexOf("--delay");
+    const cron = cronIdx >= 0 ? args[cronIdx + 1] : undefined;
+    const delayMs = delayIdx >= 0 ? Number(args[delayIdx + 1]) : undefined;
+
+    addTask(name, type, data, { cron, delayMs });
+    console.log(`Task "${name}" added. The running process will pick it up within 30s.`);
     break;
   }
 
   case "remove": {
-    const [name] = args;
+    const name = args[0];
     if (!name) {
       console.error("Usage: bun run scripts/schedule.ts remove <name>");
       process.exit(1);
     }
-    await removeRecurring(name);
-    console.log(`Recurring task "${name}" removed`);
-    needsRestart = true;
+    removeTask(name);
+    console.log(`Task "${name}" removed.`);
     break;
   }
 
-  case "once": {
-    const [name, delayMs, type, message] = args;
-    if (!name || !type || !message) {
-      console.error("Usage: bun run scripts/schedule.ts once <name> <delayMs> <type> <message>");
-      process.exit(1);
+  case "list": {
+    const tasks = listTasks();
+    if (tasks.length === 0) {
+      console.log("No active tasks.");
+    } else {
+      for (const t of tasks) {
+        const next = new Date(t.next_run).toISOString();
+        console.log(`  ${t.name} [${t.type}] cron=${t.cron ?? "none"} next=${next}`);
+      }
     }
-    await scheduleTask(name, { type: type as "reminder", message }, {
-      delay: delayMs ? Number(delayMs) : undefined,
-    });
-    console.log(`One-off task "${name}" scheduled`);
-    needsRestart = true;
     break;
   }
 
   default:
-    console.error("Unknown action. Use: recurring, remove, once");
+    console.error("Usage: add | remove | list");
     process.exit(1);
 }
 
-await shutdownTasks();
-
-if (needsRestart) {
-  console.log("Restarting Rachel8 to pick up new tasks...");
-  await $`sudo systemctl restart rachel8`.quiet();
-  console.log("Rachel8 restarted.");
-}
-
-process.exit(0);
+shutdownTasks();
