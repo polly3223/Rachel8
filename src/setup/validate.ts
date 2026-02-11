@@ -20,16 +20,6 @@ export function validateTelegramToken(
   return undefined;
 }
 
-export function validateExaKey(
-  value: string | undefined,
-): string | undefined {
-  if (!value || value.length === 0) return "API key is required";
-  if (value.length < 10) {
-    return "Invalid format. Exa API keys are at least 10 characters";
-  }
-  return undefined;
-}
-
 export function validateOwnerUserId(
   value: string | undefined,
 ): string | undefined {

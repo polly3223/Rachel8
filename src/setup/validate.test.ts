@@ -1,7 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
   validateTelegramToken,
-  validateExaKey,
   validateFolderPath,
 } from "./validate.ts";
 
@@ -54,42 +53,6 @@ describe("validateTelegramToken", () => {
     expect(validateTelegramToken("123456789ABCdefGHIjklMNOpqrstuvwxyz12345")).toBe(
       "Invalid format. Telegram tokens look like 123456789:ABCdef... (get one from @BotFather)",
     );
-  });
-});
-
-describe("validateExaKey", () => {
-  test("accepts valid key (10+ chars)", () => {
-    expect(validateExaKey("abcdefghij")).toBeUndefined();
-  });
-
-  test("accepts long key", () => {
-    expect(
-      validateExaKey("abcdefghijklmnopqrstuvwxyz1234567890"),
-    ).toBeUndefined();
-  });
-
-  test("rejects empty string", () => {
-    expect(validateExaKey("")).toBe("API key is required");
-  });
-
-  test("rejects undefined", () => {
-    expect(validateExaKey(undefined)).toBe("API key is required");
-  });
-
-  test("rejects short string (< 10 chars)", () => {
-    expect(validateExaKey("short")).toBe(
-      "Invalid format. Exa API keys are at least 10 characters",
-    );
-  });
-
-  test("rejects 9-character string", () => {
-    expect(validateExaKey("123456789")).toBe(
-      "Invalid format. Exa API keys are at least 10 characters",
-    );
-  });
-
-  test("accepts exactly 10 characters", () => {
-    expect(validateExaKey("1234567890")).toBeUndefined();
   });
 });
 

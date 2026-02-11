@@ -10,10 +10,6 @@ export const envSchema = z.object({
     message:
       "Must be a positive integer. Send /start to @userinfobot on Telegram to find your user ID",
   }),
-  EXA_API_KEY: z.string().min(10, {
-    message:
-      "Must be at least 10 characters. Get your key at https://dashboard.exa.ai/api-keys",
-  }),
   SHARED_FOLDER_PATH: z.string().min(1, {
     message: "Shared folder path is required",
   }),
