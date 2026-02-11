@@ -31,7 +31,13 @@ The task system lives in src/lib/tasks.ts and supports:
 - One-off delayed tasks (e.g., "kill this process in 24 hours")
 - Recurring cron tasks (e.g., "remind Lorenzo every Monday at 9am")
 - Bash commands, reminders (sent via Telegram), and cleanup tasks
-Tasks persist in SQLite at /home/rachel/shared/rachel-memory/tasks.db — they survive restarts.`;
+Tasks persist in SQLite at /home/rachel/shared/rachel-memory/tasks.db — they survive restarts.
+
+## Self-Management
+- To restart yourself: sudo systemctl restart rachel8
+- To check your status: sudo systemctl status rachel8
+- To view logs: sudo journalctl -u rachel8 -f
+- Your repo is at /home/rachel/rachel8 — after code changes, commit, push, and restart.`;
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
 
