@@ -1,3 +1,7 @@
+// Set env vars BEFORE importing the SDK — it captures them at import time
+process.env.ENCLAVE_URL = "https://enclave.cci.prem.io";
+process.env.PROXY_URL = "https://proxy.cci.prem.io";
+
 import createRvencClient from "@premai/pcci-sdk-ts";
 import { generateEncryptionKeys } from "@premai/pcci-sdk-ts";
 import { readFileSync } from "fs";
@@ -7,21 +11,28 @@ const API_KEY = "sk_live_MDE5YzU2NTItZTQyNS03OTkwLTlhZTEtYTJmODcyYjlmMmVhX3BjY2k
 
 // Cache the client so we don't re-do key exchange every time
 let cachedClient: Awaited<ReturnType<typeof createRvencClient>> | null = null;
+let clientPromise: Promise<Awaited<ReturnType<typeof createRvencClient>>> | null = null;
 
 async function getClient() {
   if (cachedClient) return cachedClient;
 
-  process.env.ENCLAVE_URL = "https://enclave.cci.prem.io";
-  process.env.PROXY_URL = "https://proxy.cci.prem.io";
+  // Avoid multiple concurrent initializations
+  if (clientPromise) return clientPromise;
 
-  const encryptionKeys = await generateEncryptionKeys();
-  cachedClient = await createRvencClient({
-    apiKey: API_KEY,
-    dekStore: { fileDEKs: {} } as any,
-    encryptionKeys,
-  });
+  clientPromise = (async () => {
+    const t0 = performance.now();
+    const encryptionKeys = await generateEncryptionKeys();
+    cachedClient = await createRvencClient({
+      apiKey: API_KEY,
+      dekStore: { fileDEKs: {} } as any,
+      encryptionKeys,
+    });
+    const elapsed = (performance.now() - t0).toFixed(0);
+    logger.info(`PCCI client initialized in ${elapsed}ms`);
+    return cachedClient;
+  })();
 
-  return cachedClient;
+  return clientPromise;
 }
 
 // Pre-warm the client on import so first transcription is fast
@@ -29,6 +40,8 @@ getClient().catch((err) => {
   logger.warn("Failed to pre-warm PCCI client", {
     error: err instanceof Error ? err.message : String(err),
   });
+  // Reset so next call retries
+  clientPromise = null;
 });
 
 export async function transcribeAudio(filePath: string): Promise<string> {
