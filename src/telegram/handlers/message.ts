@@ -2,6 +2,7 @@ import type { BotContext } from "../bot.ts";
 import { generateResponse } from "../../ai/claude.ts";
 import { logger } from "../../lib/logger.ts";
 import { downloadTelegramFile } from "./file.ts";
+import { transcribeAudio } from "./transcribe.ts";
 
 /** Handle plain text messages */
 export async function handleMessage(ctx: BotContext): Promise<void> {
@@ -80,8 +81,14 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
   try {
     const localPath = await downloadTelegramFile(ctx, voice.file_id, "voice.ogg");
 
-    const caption = ctx.message?.caption ?? "I sent you a voice message.";
-    const prompt = `[User sent a voice message saved at: ${localPath} (duration: ${voice.duration}s)]\n\n${caption}`;
+    // Auto-transcribe via Prem PCCI, then pass transcribed text to Claude
+    const transcription = await transcribeAudio(localPath);
+    logger.info("Voice message transcribed", { transcription });
+
+    const caption = ctx.message?.caption;
+    const prompt = caption
+      ? `[Voice message transcribed: "${transcription}"]\n\n${caption}`
+      : transcription;
 
     const response = await generateResponse(ctx.chat.id, prompt);
     await ctx.reply(response);
@@ -104,8 +111,12 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     const fileName = audio.file_name ?? `audio.${audio.mime_type?.split("/")[1] ?? "mp3"}`;
     const localPath = await downloadTelegramFile(ctx, audio.file_id, fileName);
 
+    // Auto-transcribe via Prem PCCI, then pass transcribed text to Claude
+    const transcription = await transcribeAudio(localPath);
+    logger.info("Audio file transcribed", { fileName, transcription });
+
     const caption = ctx.message?.caption ?? `I sent you an audio file: ${fileName}`;
-    const prompt = `[User sent an audio file saved at: ${localPath} (filename: ${fileName}, duration: ${audio.duration}s)]\n\n${caption}`;
+    const prompt = `[Audio file "${fileName}" transcribed: "${transcription}"]\n\n${caption}`;
 
     const response = await generateResponse(ctx.chat.id, prompt);
     await ctx.reply(response);
