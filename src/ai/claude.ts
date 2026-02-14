@@ -11,6 +11,11 @@ You communicate via Telegram. Formatting rules:
 - Bold (*text*) is fine sparingly for emphasis
 - Never write walls of text — be direct
 
+## Tool & Runtime Defaults
+- For Python projects and scripts, always use UV for package management and virtual environments (not pip/venv directly)
+- For JavaScript/TypeScript, always use Bun (not npm/node) unless Lorenzo specifies otherwise
+- You have skills installed in the skills/ directory — use them when relevant (PDF, Excel, Word, PowerPoint, web design, MCP servers, etc.)
+
 ## Memory Instructions
 Your persistent memory lives in /home/rachel/shared/rachel-memory/:
 - MEMORY.md: Core facts (loaded below). Keep it concise — only important persistent info.
@@ -79,6 +84,38 @@ async function saveSessions(): Promise<void> {
 // Load sessions immediately
 await loadSessions();
 
+async function runQuery(
+  userMessage: string,
+  systemPrompt: string,
+  sessionId?: string,
+): Promise<{ result: string; sessionId: string }> {
+  const conversation = query({
+    prompt: userMessage,
+    options: {
+      systemPrompt,
+      model: "claude-opus-4-6",
+      maxTurns: Infinity,
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      ...(sessionId ? { resume: sessionId } : {}),
+    },
+  });
+
+  for await (const message of conversation) {
+    if (message.type === "result") {
+      if (message.subtype === "success") {
+        return { result: message.result, sessionId: message.session_id };
+      }
+      const errors = "errors" in message ? message.errors : [];
+      throw new Error(
+        (errors as string[])?.join(", ") ?? "Unknown error from Claude",
+      );
+    }
+  }
+
+  throw new Error("No result received from Claude");
+}
+
 export async function generateResponse(
   chatId: number,
   userMessage: string,
@@ -91,35 +128,54 @@ export async function generateResponse(
   // Build system prompt with memory context
   const systemPrompt = await buildSystemPromptWithMemory(BASE_SYSTEM_PROMPT);
 
-  const conversation = query({
-    prompt: userMessage,
-    options: {
+  try {
+    const { result, sessionId } = await runQuery(
+      userMessage,
       systemPrompt,
-      model: "claude-opus-4-6",
-      maxTurns: Infinity,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-      ...(existingSessionId ? { resume: existingSessionId } : {}),
-    },
-  });
+      existingSessionId,
+    );
+    sessions.set(chatId, sessionId);
+    await saveSessions();
+    await appendToDailyLog("assistant", result);
+    return result;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const isContextOverflow =
+      errorMsg.toLowerCase().includes("prompt is too long") ||
+      errorMsg.toLowerCase().includes("too many tokens") ||
+      errorMsg.toLowerCase().includes("context length") ||
+      errorMsg.toLowerCase().includes("max_tokens") ||
+      errorMsg.toLowerCase().includes("request too large");
 
-  for await (const message of conversation) {
-    if (message.type === "result") {
-      // Store session ID and persist to disk
-      sessions.set(chatId, message.session_id);
+    if (isContextOverflow && existingSessionId) {
+      logger.warn(
+        `Session ${existingSessionId} context overflow for chat ${chatId}, starting fresh session`,
+      );
+
+      // Clear the old session and retry with a fresh one
+      sessions.delete(chatId);
       await saveSessions();
 
-      if (message.subtype === "success") {
-        // Log assistant response to daily log
-        await appendToDailyLog("assistant", message.result);
-        return message.result;
+      try {
+        const { result, sessionId } = await runQuery(
+          userMessage,
+          systemPrompt,
+        );
+        sessions.set(chatId, sessionId);
+        await saveSessions();
+        const freshNotice =
+          "[Context was too large — started fresh session. My memory files are intact so I still know everything important.]\n\n" +
+          result;
+        await appendToDailyLog("assistant", freshNotice);
+        return freshNotice;
+      } catch (retryError) {
+        logger.error("Failed even with fresh session", {
+          error: retryError,
+        });
+        throw retryError;
       }
-      const errors = "errors" in message ? message.errors : [];
-      throw new Error(
-        (errors as string[])?.join(", ") ?? "Unknown error from Claude",
-      );
     }
-  }
 
-  return "I'm sorry, I couldn't generate a response.";
+    throw error;
+  }
 }
