@@ -36,7 +36,9 @@ Type=simple
 WorkingDirectory=${projectDir}
 ExecStart=${bunPath} run src/index.ts
 Restart=on-failure
-RestartSec=5
+RestartSec=10
+StartLimitIntervalSec=120
+StartLimitBurst=3
 Environment=NODE_ENV=production
 
 [Install]

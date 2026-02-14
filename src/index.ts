@@ -32,17 +32,30 @@ function shutdown(): void {
 process.once("SIGTERM", () => shutdown());
 process.once("SIGINT", () => shutdown());
 
-// Send startup message with retry (the old process may still hold the bot token briefly)
-for (let attempt = 1; attempt <= 3; attempt++) {
+// Send startup message (debounced — skip if sent within last 30s to prevent spam on crash loops)
+const STARTUP_LOCK = "/tmp/rachel8-startup.lock";
+let shouldSendStartup = true;
+try {
+  const lockFile = Bun.file(STARTUP_LOCK);
+  if (await lockFile.exists()) {
+    const lastSent = (await lockFile.text()).trim();
+    const elapsed = Date.now() - Number(lastSent);
+    if (elapsed < 30_000) {
+      shouldSendStartup = false;
+      logger.info("Skipping startup message (sent recently)");
+    }
+  }
+} catch {
+  // Lock file read failed — send anyway
+}
+
+if (shouldSendStartup) {
   try {
     await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online! 🟢");
+    await Bun.write(STARTUP_LOCK, String(Date.now()));
     logger.info("Startup message sent");
-    break;
   } catch (err) {
-    logger.warn(`Startup message attempt ${attempt}/3 failed`, {
-      error: errorMessage(err),
-    });
-    if (attempt < 3) await Bun.sleep(2000);
+    logger.warn("Could not send startup message", { error: errorMessage(err) });
   }
 }
 
