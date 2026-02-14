@@ -1,8 +1,22 @@
-# Rachel8
+# Rachel
 
-Personal AI assistant on Telegram, powered by Claude. Runs 24/7 on your VPS with reliable scheduled tasks, file management, and shell access.
+Personal AI assistant on Telegram, powered by Claude. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
 
 Rachel uses the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — no API key needed, works with your Claude Max/Pro subscription.
+
+## What can she do?
+
+- Build and host landing pages, track form submissions
+- Send you lead data as Excel, CSV, or any format
+- Manage contacts, follow-ups, and reminders
+- Create documents, proposals, presentations on demand
+- Research anything — suppliers, competitors, market data
+- Schedule tasks, set reminders, handle your admin work
+- Read any file you send: PDFs, images, audio, video
+- Run code, manage servers, deploy projects
+- Remember everything — persistent memory across all conversations
+
+She's not a chatbot. She's a full AI agent with tools, running on your own server.
 
 ## Setup (fresh VPS)
 
@@ -26,7 +40,7 @@ su - rachel
 
 **All remaining steps run as `rachel`.**
 
-### 2. Install system dependencies, GitHub CLI, and Bun
+### 2. Install system dependencies and Bun
 
 ```bash
 sudo apt update && sudo apt install -y unzip gh
@@ -40,8 +54,6 @@ source ~/.bashrc
 gh auth login
 ```
 
-Follow the prompts to authenticate with your GitHub account.
-
 ### 4. Install Claude Code and log in
 
 ```bash
@@ -49,8 +61,6 @@ curl -fsSL https://claude.ai/install.sh | bash
 source ~/.bashrc
 claude login
 ```
-
-Follow the prompts to authenticate with your Claude Max/Pro subscription.
 
 Verify it works:
 
@@ -61,7 +71,7 @@ claude -p 'say hello'
 ### 5. Clone and install
 
 ```bash
-gh repo clone polly3223/Rachel8 ~/rachel8
+gh repo clone <your-username>/rachel ~/rachel8
 cd ~/rachel8
 bun install
 ```
@@ -72,12 +82,11 @@ bun install
 bun run setup
 ```
 
-The wizard will ask for everything interactively:
+The wizard will ask for:
 - **Telegram bot token** — create one via [@BotFather](https://t.me/BotFather) (`/newbot`)
 - **Your Telegram user ID** — send `/start` to [@userinfobot](https://t.me/userinfobot)
-- **Exa API key** — get from https://dashboard.exa.ai/api-keys
-- **Shared folder path** — auto-detects `/data/shared/vault` if it exists
-- **systemd service** — optionally installs and starts Rachel as a service
+- **Shared folder path** — where Rachel stores memory, files, and data
+- **systemd service** — optionally installs Rachel as a background service
 
 ### 7. Start Rachel
 
@@ -102,7 +111,7 @@ That's it. Send a message to your bot on Telegram.
 1. Open Telegram, search for `@BotFather`
 2. Send `/newbot`
 3. Choose a name (e.g., "Rachel")
-4. Choose a username (e.g., "rachel8_bot")
+4. Choose a username (e.g., "my_rachel_bot")
 5. Copy the token — you'll paste it into the setup wizard
 
 ## Development
@@ -116,7 +125,7 @@ bun test             # Run tests
 
 ## Service Management
 
-Rachel runs as a systemd service on the VPS:
+Rachel runs as a systemd service:
 
 ```bash
 sudo systemctl status rachel8      # Check status
@@ -126,6 +135,17 @@ sudo journalctl -u rachel8 -f      # Follow logs
 sudo journalctl -u rachel8 -n 50   # Last 50 log lines
 ```
 
+## How it works
+
+Rachel is built on the Claude Agent SDK — the same engine behind Claude Code. When you send a message on Telegram, Rachel processes it with full tool access:
+
+- **Bash** — run any command on the server
+- **File system** — read, write, edit any file
+- **Web** — search the web, fetch URLs, scrape data
+- **Memory** — persistent storage that survives restarts and context resets
+- **Tasks** — SQLite-backed scheduler for reminders, cron jobs, and autonomous agent tasks
+- **Skills** — extensible via skill files (PDF generation, Excel, web design, etc.)
+
 ## Project Structure
 
 ```
@@ -133,13 +153,13 @@ rachel8/
 ├── src/
 │   ├── index.ts              # Entry point
 │   ├── ai/
-│   │   └── claude.ts         # Claude Agent SDK client
+│   │   └── claude.ts         # Claude Agent SDK client + session management
 │   ├── config/
 │   │   └── env.ts            # Zod-validated environment config
 │   ├── telegram/
 │   │   ├── bot.ts            # grammY bot instance and middleware
 │   │   ├── handlers/
-│   │   │   └── message.ts    # Text message handler
+│   │   │   └── message.ts    # Message handler (text, voice, photos, files)
 │   │   └── middleware/
 │   │       └── auth.ts       # Single-user auth guard
 │   ├── setup/
@@ -147,7 +167,10 @@ rachel8/
 │   │   ├── install.ts        # systemd service installer
 │   │   └── validate.ts       # Format validators
 │   └── lib/
-│       └── logger.ts         # Thin logging wrapper
+│       ├── logger.ts         # Logging
+│       ├── memory.ts         # Memory system (daily logs, MEMORY.md)
+│       └── tasks.ts          # SQLite task scheduler
+├── skills/                    # Extensible skill files
 ├── rachel8.service            # systemd unit file template
 ├── package.json
 ├── tsconfig.json

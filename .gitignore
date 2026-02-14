@@ -7,6 +7,14 @@ node_modules/
 # Session persistence
 .sessions.json
 
+# Internal planning docs
+.planning/
+
+# User-specific projects/pages (created at runtime)
+ar-challenge*/
+clara-page/
+tech-page/
+
 # Build output
 dist/
 

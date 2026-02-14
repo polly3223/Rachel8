@@ -9,7 +9,7 @@
  *
  * Task types:
  * - "bash": Run a shell command
- * - "reminder": Send a Telegram message to Lorenzo
+ * - "reminder": Send a Telegram message to the owner
  * - "cleanup": Kill processes by name
  * - "agent": Trigger the AI agent with a prompt — Rachel does autonomous work
  */
@@ -193,7 +193,7 @@ async function executeTask(task: TaskRow): Promise<void> {
         try {
           logger.info(`Agent task starting: ${task.name}`);
           const result = await agentExecutor(parsed.prompt);
-          // Send the agent's response to Lorenzo via Telegram
+          // Send the agent's response to the owner via Telegram
           await sendTelegramMessage(result);
           logger.info(`Agent task completed: ${task.name}`);
         } catch (error) {
