@@ -32,13 +32,18 @@ function shutdown(): void {
 process.once("SIGTERM", () => shutdown());
 process.once("SIGINT", () => shutdown());
 
-try {
-  await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online! 🟢");
-  logger.info("Startup message sent");
-} catch (err) {
-  logger.warn("Could not send startup message", {
-    error: errorMessage(err),
-  });
+// Send startup message with retry (the old process may still hold the bot token briefly)
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+    await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online! 🟢");
+    logger.info("Startup message sent");
+    break;
+  } catch (err) {
+    logger.warn(`Startup message attempt ${attempt}/3 failed`, {
+      error: errorMessage(err),
+    });
+    if (attempt < 3) await Bun.sleep(2000);
+  }
 }
 
 await bot.start({
