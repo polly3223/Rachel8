@@ -30,6 +30,8 @@ export async function installSystemdService(): Promise<void> {
 Description=Rachel8 AI Assistant
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -37,8 +39,6 @@ WorkingDirectory=${projectDir}
 ExecStart=${bunPath} run src/index.ts
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=120
-StartLimitBurst=3
 Environment=NODE_ENV=production
 
 [Install]
