@@ -1,16 +1,6 @@
+import { basename } from "node:path";
 import { logger } from "../../lib/logger.ts";
-
-/**
- * Speech-to-text via 3rd party API.
- *
- * Supports two providers (set STT_PROVIDER env var):
- *   - "groq"   (default) — free Whisper API via Groq (whisper-large-v3-turbo)
- *   - "openai"           — OpenAI Whisper API ($0.006/min)
- *
- * Required env vars:
- *   GROQ_API_KEY   — for Groq provider
- *   OPENAI_API_KEY — for OpenAI provider
- */
+import { errorMessage } from "../../lib/errors.ts";
 
 const STT_PROVIDER = (process.env["STT_PROVIDER"] ?? "groq").toLowerCase();
 
@@ -25,7 +15,6 @@ function getConfig(): { url: string; apiKey: string; model: string } {
     };
   }
 
-  // Default: Groq (free, fast)
   const apiKey = process.env["GROQ_API_KEY"];
   if (!apiKey) throw new Error("GROQ_API_KEY not set — required for Groq STT");
   return {
@@ -35,12 +24,11 @@ function getConfig(): { url: string; apiKey: string; model: string } {
   };
 }
 
-// Validate on startup
 try {
   getConfig();
   logger.info(`STT ready: provider=${STT_PROVIDER}`);
 } catch (e) {
-  logger.warn(`STT not configured: ${e instanceof Error ? e.message : String(e)}`);
+  logger.warn(`STT not configured: ${errorMessage(e)}`);
 }
 
 export async function transcribeAudio(filePath: string): Promise<string> {
@@ -52,12 +40,10 @@ export async function transcribeAudio(filePath: string): Promise<string> {
     throw new Error(`Audio file not found: ${filePath}`);
   }
 
-  // Read file into a Blob and wrap as File with proper name
-  // (Groq/OpenAI need the filename extension to detect format)
+  // Wrap as File with proper name — APIs need the extension to detect format
   const bytes = await bunFile.arrayBuffer();
-  const fileName = filePath.split("/").pop() ?? "audio.ogg";
-  const blob = new Blob([bytes], { type: bunFile.type });
-  const file = new File([blob], fileName, { type: bunFile.type });
+  const fileName = basename(filePath) || "audio.ogg";
+  const file = new File([bytes], fileName, { type: bunFile.type });
 
   const formData = new FormData();
   formData.append("file", file);

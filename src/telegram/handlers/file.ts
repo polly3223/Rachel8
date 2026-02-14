@@ -1,5 +1,4 @@
 import { writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { BotContext } from "../bot.ts";
 import { env } from "../../config/env.ts";
@@ -7,17 +6,10 @@ import { logger } from "../../lib/logger.ts";
 
 const DOWNLOADS_DIR = join(env.SHARED_FOLDER_PATH, "telegram-files");
 
-/** Ensure downloads directory exists */
 async function ensureDownloadsDir(): Promise<void> {
-  if (!existsSync(DOWNLOADS_DIR)) {
-    await mkdir(DOWNLOADS_DIR, { recursive: true });
-  }
+  await mkdir(DOWNLOADS_DIR, { recursive: true });
 }
 
-/**
- * Downloads a file from Telegram and saves it locally.
- * Returns the local file path.
- */
 export async function downloadTelegramFile(
   ctx: BotContext,
   fileId: string,

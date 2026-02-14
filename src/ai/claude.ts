@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../lib/logger.ts";
+import { errorMessage } from "../lib/errors.ts";
 import { appendToDailyLog, buildSystemPromptWithMemory } from "../lib/memory.ts";
 
 const BASE_SYSTEM_PROMPT = `You are Rachel, a personal AI assistant. You are helpful, concise, and friendly.
@@ -70,10 +71,8 @@ Your owner may not be technical. When they ask you to create a website, landing 
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
 
-// Map Telegram chatId -> Agent SDK session ID for conversation memory
 const sessions = new Map<number, string>();
 
-// Load persisted sessions from disk on startup
 async function loadSessions(): Promise<void> {
   try {
     const file = Bun.file(SESSIONS_FILE);
@@ -94,7 +93,6 @@ async function saveSessions(): Promise<void> {
   await Bun.write(SESSIONS_FILE, JSON.stringify(data));
 }
 
-// Load sessions immediately
 await loadSessions();
 
 async function runQuery(
@@ -152,13 +150,13 @@ export async function generateResponse(
     await appendToDailyLog("assistant", result);
     return result;
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    const msg = errorMessage(error).toLowerCase();
     const isContextOverflow =
-      errorMsg.toLowerCase().includes("prompt is too long") ||
-      errorMsg.toLowerCase().includes("too many tokens") ||
-      errorMsg.toLowerCase().includes("context length") ||
-      errorMsg.toLowerCase().includes("max_tokens") ||
-      errorMsg.toLowerCase().includes("request too large");
+      msg.includes("prompt is too long") ||
+      msg.includes("too many tokens") ||
+      msg.includes("context length") ||
+      msg.includes("max_tokens") ||
+      msg.includes("request too large");
 
     if (isContextOverflow && existingSessionId) {
       logger.warn(
@@ -183,7 +181,7 @@ export async function generateResponse(
         return freshNotice;
       } catch (retryError) {
         logger.error("Failed even with fresh session", {
-          error: retryError,
+          error: errorMessage(retryError),
         });
         throw retryError;
       }

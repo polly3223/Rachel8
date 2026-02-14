@@ -1,16 +1,9 @@
+import { resolve } from "node:path";
 import { logger } from "../lib/logger.ts";
+import { errorMessage } from "../lib/errors.ts";
 
-/**
- * Install and enable the rachel8 systemd service.
- *
- * Reads the rachel8.service template from the project root, replaces
- * placeholder paths with the actual user/paths, copies to systemd,
- * and enables + starts the service.
- *
- * Requires sudo. Gracefully handles failures with actionable messages.
- */
 export async function installSystemdService(): Promise<void> {
-  const projectDir = import.meta.dir.replace("/src/setup", "");
+  const projectDir = resolve(import.meta.dir, "..", "..");
   const templatePath = `${projectDir}/rachel8.service`;
 
   // Read the template
@@ -23,15 +16,14 @@ export async function installSystemdService(): Promise<void> {
 
   let template = await templateFile.text();
 
-  // Detect runtime info
   const user = Bun.env["USER"] ?? "root";
   const home = Bun.env["HOME"] ?? `/home/${user}`;
-  // Prefer the standard install location — Bun.which() can resolve to a
-  // temporary path (e.g. /tmp/bun-node-*) that won't survive a reboot.
   const standardBunPath = `${home}/.bun/bin/bun`;
-  const bunPath = (await Bun.file(standardBunPath).exists())
-    ? standardBunPath
-    : (Bun.which("bun") ?? standardBunPath);
+
+  let bunPath = standardBunPath;
+  if (!(await Bun.file(standardBunPath).exists())) {
+    bunPath = Bun.which("bun") ?? standardBunPath;
+  }
 
   // Replace placeholders
   template = template.replaceAll("__USER__", user);
@@ -60,8 +52,7 @@ export async function installSystemdService(): Promise<void> {
     await run("sudo", ["systemctl", "start", "rachel8"]);
     logger.info("Started rachel8 service");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error("Failed to install systemd service", { error: msg });
+    logger.error("Failed to install systemd service", { error: errorMessage(err) });
     console.log("\nTo install manually:");
     console.log(`  sudo cp ${tmpPath} /etc/systemd/system/rachel8.service`);
     console.log("  sudo systemctl daemon-reload");
@@ -74,7 +65,7 @@ async function checkSystemdVersion(): Promise<void> {
   try {
     const proc = Bun.spawn(["systemctl", "--version"], {
       stdout: "pipe",
-      stderr: "pipe",
+      stderr: "ignore",
     });
     const output = await new Response(proc.stdout).text();
     await proc.exited;
@@ -97,7 +88,7 @@ async function checkSystemdVersion(): Promise<void> {
 
 async function run(cmd: string, args: string[]): Promise<void> {
   const proc = Bun.spawn([cmd, ...args], {
-    stdout: "pipe",
+    stdout: "ignore",
     stderr: "pipe",
   });
   const exitCode = await proc.exited;

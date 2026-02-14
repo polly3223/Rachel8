@@ -7,8 +7,7 @@ const LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
-// Read LOG_LEVEL from process.env directly — NOT from the env config module.
-// Logger loads before config validation and must not create a circular dependency.
+// Read directly from process.env to avoid circular dependency with config module.
 const currentLevel: LogLevel =
   (process.env["LOG_LEVEL"] as LogLevel | undefined) ?? "info";
 
@@ -16,44 +15,27 @@ function shouldLog(level: LogLevel): boolean {
   return LEVELS[level] >= LEVELS[currentLevel];
 }
 
+const CONSOLE_METHOD: Record<LogLevel, (...args: unknown[]) => void> = {
+  debug: console.debug,
+  info: console.log,
+  warn: console.warn,
+  error: console.error,
+};
+
+function logAtLevel(level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
+  if (!shouldLog(level)) return;
+  const prefix = `[${level.toUpperCase()}]`;
+  const write = CONSOLE_METHOD[level];
+  if (ctx) {
+    write(`${prefix} ${msg}`, ctx);
+  } else {
+    write(`${prefix} ${msg}`);
+  }
+}
+
 export const logger = {
-  debug(msg: string, ctx?: Record<string, unknown>): void {
-    if (shouldLog("debug")) {
-      if (ctx) {
-        console.debug(`[DEBUG] ${msg}`, ctx);
-      } else {
-        console.debug(`[DEBUG] ${msg}`);
-      }
-    }
-  },
-
-  info(msg: string, ctx?: Record<string, unknown>): void {
-    if (shouldLog("info")) {
-      if (ctx) {
-        console.log(`[INFO] ${msg}`, ctx);
-      } else {
-        console.log(`[INFO] ${msg}`);
-      }
-    }
-  },
-
-  warn(msg: string, ctx?: Record<string, unknown>): void {
-    if (shouldLog("warn")) {
-      if (ctx) {
-        console.warn(`[WARN] ${msg}`, ctx);
-      } else {
-        console.warn(`[WARN] ${msg}`);
-      }
-    }
-  },
-
-  error(msg: string, ctx?: Record<string, unknown>): void {
-    if (shouldLog("error")) {
-      if (ctx) {
-        console.error(`[ERROR] ${msg}`, ctx);
-      } else {
-        console.error(`[ERROR] ${msg}`);
-      }
-    }
-  },
+  debug(msg: string, ctx?: Record<string, unknown>): void { logAtLevel("debug", msg, ctx); },
+  info(msg: string, ctx?: Record<string, unknown>): void  { logAtLevel("info", msg, ctx); },
+  warn(msg: string, ctx?: Record<string, unknown>): void  { logAtLevel("warn", msg, ctx); },
+  error(msg: string, ctx?: Record<string, unknown>): void { logAtLevel("error", msg, ctx); },
 };

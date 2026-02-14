@@ -17,16 +17,12 @@ import {
 } from "./validate.ts";
 import { installSystemdService } from "./install.ts";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function handleCancel(value: unknown): asserts value is string {
+function exitIfCancelled<T>(value: T | symbol): asserts value is T {
   if (isCancel(value)) {
     cancel("Setup cancelled.");
     process.exit(0);
   }
 }
-
-// ── Wizard ───────────────────────────────────────────────────────────────────
 
 intro("Rachel8 Setup");
 
@@ -47,9 +43,9 @@ const telegramToken = await text({
   placeholder: "123456789:ABCdef...",
   validate: validateTelegramToken,
 });
-handleCancel(telegramToken);
+exitIfCancelled(telegramToken);
 
-// 2b. Owner Telegram user ID
+// 2. Owner Telegram user ID
 log.info(
   "Send /start to @userinfobot on Telegram to get your user ID.\n" +
     "This is a number like 123456789.",
@@ -60,7 +56,7 @@ const ownerUserId = await text({
   placeholder: "123456789",
   validate: validateOwnerUserId,
 });
-handleCancel(ownerUserId);
+exitIfCancelled(ownerUserId);
 
 // 3. Shared folder path (auto-detect /data/shared/vault)
 const defaultVaultPath = "/data/shared/vault";
@@ -76,28 +72,25 @@ const sharedFolder = await text({
   initialValue: vaultExists ? defaultVaultPath : undefined,
   validate: validateFolderPath,
 });
-handleCancel(sharedFolder);
+exitIfCancelled(sharedFolder);
 
 // Check if the folder exists; offer to create it
 if (!existsSync(sharedFolder)) {
   const shouldCreate = await confirm({
     message: `Folder ${sharedFolder} doesn't exist. Create it?`,
   });
-  handleCancel(shouldCreate);
+  exitIfCancelled(shouldCreate);
 
   if (shouldCreate) {
     try {
       mkdirSync(sharedFolder, { recursive: true });
       log.success(`Created ${sharedFolder}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.warn(`Could not create folder: ${msg}`);
+      log.warn(`Could not create folder: ${err instanceof Error ? err.message : String(err)}`);
       log.warn("You may need to create it manually before starting Rachel.");
     }
   }
 }
-
-// ── Write .env ───────────────────────────────────────────────────────────────
 
 const s = spinner();
 s.start("Writing configuration...");
@@ -115,8 +108,6 @@ await Bun.write(".env", envContent + "\n");
 
 s.stop("Configuration saved to .env");
 
-// ── Install systemd service (optional) ───────────────────────────────────────
-
 const shouldInstallService = await confirm({
   message: "Install systemd service? (requires sudo)",
   initialValue: false,
@@ -129,15 +120,12 @@ if (!isCancel(shouldInstallService) && shouldInstallService) {
     await installSystemdService();
     si.stop("systemd service installed and started");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    si.error(`Failed to install service: ${msg}`);
+    si.error(`Failed to install service: ${err instanceof Error ? err.message : String(err)}`);
     log.warn("You can install it later with: sudo cp rachel8.service /etc/systemd/system/");
   }
 } else {
   log.info("Skipped systemd service installation. You can install it later.");
 }
-
-// ── Done ─────────────────────────────────────────────────────────────────────
 
 outro(
   "Rachel8 is configured!\n\n" +

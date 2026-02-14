@@ -1,17 +1,10 @@
 /**
- * Task scheduling system for Rachel8
+ * SQLite-backed task scheduler for Rachel8.
  *
- * Simple SQLite-backed scheduler. No external dependencies.
  * A polling loop checks for due tasks every 30 seconds.
+ * Tasks can be added via the public API or directly via SQLite.
  *
- * Tasks can be added/removed by writing to the SQLite DB from anywhere
- * (Bash, scripts, etc.) — the running process picks them up automatically.
- *
- * Task types:
- * - "bash": Run a shell command
- * - "reminder": Send a Telegram message to the owner
- * - "cleanup": Kill processes by name
- * - "agent": Trigger the AI agent with a prompt — Rachel does autonomous work
+ * Task types: "bash", "reminder", "cleanup", "agent"
  */
 
 import { Database } from "bun:sqlite";
@@ -20,8 +13,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { env } from "../config/env.ts";
 import { logger } from "./logger.ts";
-
-// -- Database setup -----------------------------------------------------------
+import { errorMessage } from "./errors.ts";
 
 const MEMORY_DIR = join(env.SHARED_FOLDER_PATH, "rachel-memory");
 const DB_PATH = join(MEMORY_DIR, "tasks.db");
@@ -33,70 +25,56 @@ if (!existsSync(MEMORY_DIR)) {
 const db = new Database(DB_PATH);
 db.exec("PRAGMA journal_mode = WAL");
 
-// SQLite CHECK constraints can't be altered, so we recreate the table if needed
-// to support the new 'agent' type.
+const CREATE_TASKS_TABLE = `
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('bash', 'reminder', 'cleanup', 'agent')),
+    data TEXT NOT NULL DEFAULT '{}',
+    cron TEXT,
+    next_run INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )
+`;
+
+// Migrate table if it lacks the 'agent' type constraint
 const tableInfo = db.query("SELECT sql FROM sqlite_master WHERE name = 'tasks'").get() as { sql: string } | null;
 
 if (tableInfo && !tableInfo.sql.includes("agent")) {
-  // Migrate: recreate table with updated CHECK constraint
   db.exec("ALTER TABLE tasks RENAME TO tasks_old");
-  db.exec(`
-    CREATE TABLE tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('bash', 'reminder', 'cleanup', 'agent')),
-      data TEXT NOT NULL DEFAULT '{}',
-      cron TEXT,
-      next_run INTEGER NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    )
-  `);
+  db.exec(CREATE_TASKS_TABLE);
   db.exec("INSERT INTO tasks SELECT * FROM tasks_old");
   db.exec("DROP TABLE tasks_old");
   logger.info("Migrated tasks table to support 'agent' type");
 } else if (!tableInfo) {
-  db.exec(`
-    CREATE TABLE tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('bash', 'reminder', 'cleanup', 'agent')),
-      data TEXT NOT NULL DEFAULT '{}',
-      cron TEXT,
-      next_run INTEGER NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    )
-  `);
+  db.exec(CREATE_TASKS_TABLE);
 }
 
-// -- Cron parsing -------------------------------------------------------------
+function parseCronField(field: string, max: number): number[] {
+  if (field === "*") return Array.from({ length: max }, (_, i) => i);
+  if (field.includes(",")) return field.split(",").map(Number);
+  if (field.includes("/")) {
+    const step = Number(field.split("/")[1]);
+    return Array.from({ length: max }, (_, i) => i).filter(i => i % step === 0);
+  }
+  return [Number(field)];
+}
 
-/** Parse a simple cron pattern (minute hour dom month dow) into next run time */
 function getNextCronRun(pattern: string, after: number = Date.now()): number {
   const [minPart, hourPart, domPart, monPart, dowPart] = pattern.split(" ");
 
-  const parseField = (field: string, max: number): number[] => {
-    if (field === "*") return Array.from({ length: max }, (_, i) => i);
-    if (field.includes(",")) return field.split(",").map(Number);
-    if (field.includes("/")) {
-      const [, step] = field.split("/");
-      return Array.from({ length: max }, (_, i) => i).filter(i => i % Number(step) === 0);
-    }
-    return [Number(field)];
-  };
+  const minutes = parseCronField(minPart, 60);
+  const hours = parseCronField(hourPart, 24);
+  const doms = parseCronField(domPart, 32).map(d => d || 1);
+  const months = parseCronField(monPart, 13).map(m => m || 1);
+  const dows = parseCronField(dowPart, 7);
 
-  const minutes = parseField(minPart, 60);
-  const hours = parseField(hourPart, 24);
-  const doms = parseField(domPart, 32).map(d => d || 1); // day of month 1-31
-  const months = parseField(monPart, 13).map(m => m || 1); // month 1-12
-  const dows = parseField(dowPart, 7); // day of week 0-6
-
-  const start = new Date(after + 60000); // at least 1 minute from now
+  const start = new Date(after + 60000);
   start.setUTCSeconds(0, 0);
 
-  // Search up to 366 days ahead
-  for (let i = 0; i < 527040; i++) { // 366 * 24 * 60
+  const MAX_MINUTES_TO_SEARCH = 366 * 24 * 60;
+  for (let i = 0; i < MAX_MINUTES_TO_SEARCH; i++) {
     const candidate = new Date(start.getTime() + i * 60000);
     const m = candidate.getUTCMinutes();
     const h = candidate.getUTCHours();
@@ -115,11 +93,8 @@ function getNextCronRun(pattern: string, after: number = Date.now()): number {
     }
   }
 
-  // Fallback: 1 hour from now
   return after + 3600000;
 }
-
-// -- Telegram sender ----------------------------------------------------------
 
 let sendTelegramMessage: ((text: string) => Promise<void>) | null = null;
 let agentExecutor: ((prompt: string) => Promise<string>) | null = null;
@@ -135,8 +110,6 @@ export function setAgentExecutor(
 ): void {
   agentExecutor = executor;
 }
-
-// -- Task execution -----------------------------------------------------------
 
 interface TaskRow {
   id: number;
@@ -159,7 +132,7 @@ async function executeTask(task: TaskRow): Promise<void> {
         logger.info(`Bash task done: ${task.name}`, { output: result.slice(0, 500) });
       } catch (error) {
         logger.error(`Bash task failed: ${task.name}`, {
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         });
       }
       break;
@@ -193,18 +166,15 @@ async function executeTask(task: TaskRow): Promise<void> {
         try {
           logger.info(`Agent task starting: ${task.name}`);
           const result = await agentExecutor(parsed.prompt);
-          // Send the agent's response to the owner via Telegram
           await sendTelegramMessage(result);
           logger.info(`Agent task completed: ${task.name}`);
         } catch (error) {
           logger.error(`Agent task failed: ${task.name}`, {
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
           });
-          if (sendTelegramMessage) {
-            await sendTelegramMessage(
-              `Agent task "${task.name}" failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
+          await sendTelegramMessage(
+            `Agent task "${task.name}" failed: ${errorMessage(error)}`,
+          );
         }
       } else {
         logger.warn("Cannot run agent task — executor or Telegram sender not configured");
@@ -213,8 +183,6 @@ async function executeTask(task: TaskRow): Promise<void> {
     }
   }
 }
-
-// -- Polling loop -------------------------------------------------------------
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -225,33 +193,27 @@ function pollTasks(): void {
   ).all(now) as TaskRow[];
 
   for (const task of dueTasks) {
-    // Fire and forget — don't block the poll loop
     executeTask(task).catch((err) => {
       logger.error(`Task execution error: ${task.name}`, {
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     });
 
     if (task.cron) {
-      // Recurring: schedule next run
       const nextRun = getNextCronRun(task.cron, now);
       db.run("UPDATE tasks SET next_run = ? WHERE id = ?", [nextRun, task.id]);
       logger.debug(`Next run for ${task.name}: ${new Date(nextRun).toISOString()}`);
     } else {
-      // One-off: disable after execution
       db.run("UPDATE tasks SET enabled = 0 WHERE id = ?", [task.id]);
     }
   }
 }
 
 export function startTaskPoller(): void {
-  // Poll immediately on startup, then every 30 seconds
   pollTasks();
   pollTimer = setInterval(pollTasks, 30_000);
   logger.info("Task poller started (30s interval)");
 }
-
-// -- Public API (for use from scripts) ----------------------------------------
 
 export function addTask(
   name: string,
@@ -278,8 +240,6 @@ export function removeTask(name: string): void {
 export function listTasks(): TaskRow[] {
   return db.query("SELECT * FROM tasks WHERE enabled = 1 ORDER BY next_run").all() as TaskRow[];
 }
-
-// -- Shutdown -----------------------------------------------------------------
 
 export function shutdownTasks(): void {
   if (pollTimer) {
