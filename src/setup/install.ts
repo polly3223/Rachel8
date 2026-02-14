@@ -59,9 +59,6 @@ export async function installSystemdService(): Promise<void> {
 
     await run("sudo", ["systemctl", "start", "rachel8"]);
     logger.info("Started rachel8 service");
-
-    // Configure passwordless sudo for the service user
-    await configureSudo(user);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error("Failed to install systemd service", { error: msg });
@@ -95,27 +92,6 @@ async function checkSystemdVersion(): Promise<void> {
   } catch {
     // systemctl not available (e.g., macOS dev machine) -- skip check
     logger.debug("Could not detect systemd version (non-Linux system?)");
-  }
-}
-
-async function configureSudo(user: string): Promise<void> {
-  const sudoersFile = `/etc/sudoers.d/rachel8`;
-  const sudoersLine = `${user} ALL=(ALL) NOPASSWD: ALL`;
-
-  try {
-    // Write to temp file, then sudo move (can't write directly to /etc/sudoers.d/)
-    const tmpPath = "/tmp/rachel8-sudoers";
-    await Bun.write(tmpPath, sudoersLine + "\n");
-
-    await run("sudo", ["cp", tmpPath, sudoersFile]);
-    await run("sudo", ["chmod", "0440", sudoersFile]);
-    logger.info(`Configured passwordless sudo for ${user}`);
-  } catch {
-    logger.warn(
-      `Could not configure sudo. To enable manually:\n` +
-        `  echo '${sudoersLine}' | sudo tee ${sudoersFile}\n` +
-        `  sudo chmod 0440 ${sudoersFile}`,
-    );
   }
 }
 

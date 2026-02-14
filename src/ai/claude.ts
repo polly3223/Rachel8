@@ -49,9 +49,7 @@ The task system lives in src/lib/tasks.ts and supports:
 Tasks persist in SQLite at rachel-memory/tasks.db — they survive restarts.
 
 ## Self-Management
-- To restart yourself: sudo systemctl restart rachel8
-- To check your status: sudo systemctl status rachel8
-- To view logs: sudo journalctl -u rachel8 -f
+- To restart yourself: systemctl --user restart rachel8 (or ask your owner to restart the service)
 - Your repo is at ~/rachel8 — after code changes, commit, push, and restart.
 - IMPORTANT: When restarting, ALWAYS send your final reply first, then wait ~60 seconds before restarting so the message is delivered to Telegram.`;
 

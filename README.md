@@ -24,12 +24,10 @@ All commands below assume a fresh Ubuntu server. Run everything in order.
 
 ### 1. Create the `rachel` user (as root)
 
-SSH in as root, then create a dedicated user with passwordless sudo. Rachel's Agent SDK requires a non-root user, but she needs sudo for shell commands.
+SSH in as root, then create a dedicated user. Rachel runs as a regular Linux user — no sudo needed.
 
 ```bash
 adduser rachel --ingroup users --disabled-password
-echo 'rachel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/rachel
-chmod 0440 /etc/sudoers.d/rachel
 ```
 
 Press Enter through the Full Name / Room / Phone prompts. Then switch to the new user:
@@ -125,14 +123,14 @@ bun test             # Run tests
 
 ## Service Management
 
-Rachel runs as a systemd service:
+Rachel runs as a systemd service. These commands need to be run by a user with sudo (e.g., root):
 
 ```bash
-sudo systemctl status rachel8      # Check status
-sudo systemctl restart rachel8     # Restart
-sudo systemctl stop rachel8        # Stop
-sudo journalctl -u rachel8 -f      # Follow logs
-sudo journalctl -u rachel8 -n 50   # Last 50 log lines
+systemctl status rachel8      # Check status
+systemctl restart rachel8     # Restart
+systemctl stop rachel8        # Stop
+journalctl -u rachel8 -f      # Follow logs
+journalctl -u rachel8 -n 50   # Last 50 log lines
 ```
 
 ## How it works
