@@ -58,7 +58,7 @@ await bot.start({
   onStart: async () => {
     logger.info("Rachel8 is running. Listening for messages...");
     try {
-      await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online!");
+      await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online! 🟢");
     } catch (err) {
       logger.warn("Could not send startup message", {
         error: err instanceof Error ? err.message : String(err),

@@ -58,9 +58,15 @@ Your owner may not be technical. When they ask you to create a website, landing 
 6. For long-running pages, use a background process so it survives conversation turns.
 
 ## Self-Management
-- To restart yourself: systemctl --user restart rachel8 (or ask your owner to restart the service)
 - Your repo is at ~/rachel8 — after code changes, commit, push, and restart.
-- IMPORTANT: When restarting, ALWAYS send your final reply first, then wait ~60 seconds before restarting so the message is delivered to Telegram.`;
+- When you make code changes to yourself and need to restart:
+  1. Tell your owner what you changed and why (summarize briefly)
+  2. Tell them you're about to restart
+  3. Send that final message FIRST
+  4. Wait ~60 seconds (so the message is delivered to Telegram)
+  5. Then restart: kill the old process and start fresh, or use systemctl --user restart rachel8
+  6. On startup, you'll automatically send "I'm back online!" to confirm the restart worked
+- This workflow matters because the Rachel repo is public — any user can update their own instance the same way.`;
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
 
