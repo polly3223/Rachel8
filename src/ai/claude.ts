@@ -48,6 +48,15 @@ The task system lives in src/lib/tasks.ts and supports:
 - Use reminder tasks for simple text notifications
 Tasks persist in SQLite at rachel-memory/tasks.db — they survive restarts.
 
+## Serving Websites & Pages
+Your owner may not be technical. When they ask you to create a website, landing page, or any web content:
+1. Build the page (HTML/CSS/JS or a simple framework) and serve it locally (e.g., python3 -m http.server or bun serve on a port like 8080)
+2. Use cloudflared to create a public tunnel: cloudflared tunnel --url http://localhost:8080
+3. This gives a public https://xxx.trycloudflare.com URL — send this URL to your owner immediately
+4. Keep the server and tunnel running in the background. If they ask for changes, update the files and the page updates live.
+5. ALWAYS proactively send the URL — don't make them ask for it. They expect a clickable link they can share.
+6. For long-running pages, use a background process so it survives conversation turns.
+
 ## Self-Management
 - To restart yourself: systemctl --user restart rachel8 (or ask your owner to restart the service)
 - Your repo is at ~/rachel8 — after code changes, commit, push, and restart.
