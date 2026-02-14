@@ -1,69 +1,95 @@
-import { readFileSync } from "fs";
+import { existsSync, unlinkSync } from "fs";
 import { logger } from "../../lib/logger.ts";
 
-const API_KEY = "sk_live_MDE5YzU2NTItZTQyNS03OTkwLTlhZTEtYTJmODcyYjlmMmVhX3BjY2k";
-const ENCLAVE_URL = "https://enclave.cci.prem.io";
-const PROXY_URL = "https://proxy.cci.prem.io";
+// whisper.cpp local transcription
+// Base model with auto language detection (supports English + Italian)
+const WHISPER_MODEL = process.env["WHISPER_MODEL"] ?? "base";
+const WHISPER_DIR = process.env["WHISPER_DIR"] ?? "/usr/local/share/whisper";
+const WHISPER_THREADS = process.env["WHISPER_THREADS"] ?? "2";
 
-// Cache the client so we don't re-do key exchange every time
-let cachedClient: any = null;
-let clientPromise: Promise<any> | null = null;
-
-async function getClient() {
-  if (cachedClient) return cachedClient;
-  if (clientPromise) return clientPromise;
-
-  clientPromise = (async () => {
-    const t0 = performance.now();
-
-    // Dynamic import so we can set env vars first
-    process.env.ENCLAVE_URL = ENCLAVE_URL;
-    process.env.PROXY_URL = PROXY_URL;
-    const { default: createRvencClient, generateEncryptionKeys } = await import("@premai/pcci-sdk-ts");
-
-    const encryptionKeys = await generateEncryptionKeys();
-    cachedClient = await createRvencClient({
-      apiKey: API_KEY,
-      dekStore: { fileDEKs: {} } as any,
-      encryptionKeys,
-      config: {
-        endpoints: {
-          enclave: ENCLAVE_URL,
-          proxy: PROXY_URL,
-        },
-      },
-    });
-    const elapsed = (performance.now() - t0).toFixed(0);
-    logger.info(`PCCI client initialized in ${elapsed}ms`);
-    return cachedClient;
-  })();
-
-  return clientPromise;
+function getModelPath(): string {
+  return `${WHISPER_DIR}/ggml-${WHISPER_MODEL}.bin`;
 }
 
-// Pre-warm the client on startup
-getClient().catch((err) => {
-  logger.warn("Failed to pre-warm PCCI client", {
-    error: err instanceof Error ? err.message : String(err),
+function getWhisperBinary(): string {
+  return `${WHISPER_DIR}/whisper-cli`;
+}
+
+// Validate whisper is installed on startup
+const binary = getWhisperBinary();
+const model = getModelPath();
+if (existsSync(binary) && existsSync(model)) {
+  logger.info(`whisper.cpp ready: model=${WHISPER_MODEL}, binary=${binary}`);
+} else {
+  logger.warn("whisper.cpp not found — voice transcription will fail", {
+    binary: existsSync(binary),
+    model: existsSync(model),
   });
-  clientPromise = null;
-});
+}
+
+/** Convert audio to 16kHz mono WAV (required by whisper.cpp) */
+async function convertToWav(inputPath: string): Promise<string> {
+  const wavPath = inputPath.replace(/\.[^.]+$/, ".wav");
+
+  const proc = Bun.spawn(
+    ["ffmpeg", "-y", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+
+  const result = await proc.exited;
+  if (result !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`ffmpeg conversion failed: ${stderr}`);
+  }
+
+  return wavPath;
+}
 
 export async function transcribeAudio(filePath: string): Promise<string> {
   const t0 = performance.now();
 
-  const client = await getClient();
-  const fileBuffer = readFileSync(filePath);
-  const fileName = filePath.split("/").pop() || "audio.ogg";
-  const file = new File([fileBuffer], fileName);
+  // Convert to WAV
+  const wavPath = await convertToWav(filePath);
 
-  const transcription = await client.audio.transcriptions.create({
-    file,
-    model: "openai/whisper-large-v3",
-  });
+  try {
+    const proc = Bun.spawn(
+      [
+        binary,
+        "-m", model,
+        "-f", wavPath,
+        "-t", WHISPER_THREADS,
+        "--no-timestamps",
+        "-l", "auto",
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
 
-  const elapsed = (performance.now() - t0).toFixed(0);
-  logger.info(`STT completed in ${elapsed}ms`, { filePath, textLength: transcription.text.length });
+    const result = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
 
-  return transcription.text.trim();
+    if (result !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(`whisper.cpp failed (exit ${result}): ${stderr}`);
+    }
+
+    // Parse stdout — whisper outputs text lines, filter out empty and system lines
+    const text = stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("whisper_"))
+      .join(" ")
+      .trim();
+
+    const elapsed = (performance.now() - t0).toFixed(0);
+    logger.info(`STT completed in ${elapsed}ms`, {
+      filePath,
+      model: WHISPER_MODEL,
+      textLength: text.length,
+    });
+
+    return text;
+  } finally {
+    // Clean up WAV
+    if (existsSync(wavPath)) unlinkSync(wavPath);
+  }
 }

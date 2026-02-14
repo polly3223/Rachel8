@@ -81,7 +81,7 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
   try {
     const localPath = await downloadTelegramFile(ctx, voice.file_id, "voice.ogg");
 
-    // Auto-transcribe via Prem PCCI, then pass transcribed text to Claude
+    // Auto-transcribe locally via whisper.cpp, then pass text to Claude
     const transcription = await transcribeAudio(localPath);
     logger.info("Voice message transcribed", { transcription });
 
@@ -111,7 +111,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     const fileName = audio.file_name ?? `audio.${audio.mime_type?.split("/")[1] ?? "mp3"}`;
     const localPath = await downloadTelegramFile(ctx, audio.file_id, fileName);
 
-    // Auto-transcribe via Prem PCCI, then pass transcribed text to Claude
+    // Auto-transcribe locally via whisper.cpp, then pass text to Claude
     const transcription = await transcribeAudio(localPath);
     logger.info("Audio file transcribed", { fileName, transcription });
 
