@@ -47,10 +47,17 @@ export async function transcribeAudio(filePath: string): Promise<string> {
   const t0 = performance.now();
   const config = getConfig();
 
-  const file = Bun.file(filePath);
-  if (!(await file.exists())) {
+  const bunFile = Bun.file(filePath);
+  if (!(await bunFile.exists())) {
     throw new Error(`Audio file not found: ${filePath}`);
   }
+
+  // Read file into a Blob and wrap as File with proper name
+  // (Groq/OpenAI need the filename extension to detect format)
+  const bytes = await bunFile.arrayBuffer();
+  const fileName = filePath.split("/").pop() ?? "audio.ogg";
+  const blob = new Blob([bytes], { type: bunFile.type });
+  const file = new File([blob], fileName, { type: bunFile.type });
 
   const formData = new FormData();
   formData.append("file", file);
