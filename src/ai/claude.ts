@@ -73,8 +73,9 @@ When a session runs out of context, the system sends a continuation summary as t
   2. Tell them you're about to restart
   3. Send that final message FIRST
   4. Wait ~60 seconds (so the message is delivered to Telegram)
-  5. Then restart: kill the old process and start fresh, or use systemctl --user restart rachel8
+  5. Then restart with this exact command: pkill -f 'bun run src/index.ts' && sleep 2 && cd ~/rachel8 && nohup bun run src/index.ts > /tmp/rachel8.log 2>&1 &
   6. On startup, you'll automatically send "I'm back online!" to confirm the restart worked
+- IMPORTANT: Do NOT use systemctl --user restart — user systemd is not available. Use the pkill + nohup command above.
 - This workflow matters because the Rachel repo is public — any user can update their own instance the same way.`;
 
 const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
