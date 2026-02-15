@@ -5,6 +5,17 @@ import { errorMessage } from "../../lib/errors.ts";
 import { downloadTelegramFile } from "./file.ts";
 import { transcribeAudio } from "./transcribe.ts";
 
+function timestamp(): string {
+  const now = new Date();
+  const dt = now.toLocaleString("en-GB", { timeZone: "Europe/Zurich", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  // Check if CET or CEST: CET=UTC+1, CEST=UTC+2
+  const utcH = now.getUTCHours();
+  const localH = Number(dt.split(", ")[1].split(":")[0]);
+  const offset = ((localH - utcH) + 24) % 24;
+  const tz = offset === 2 ? "CEST" : "CET";
+  return dt.replace(", ", " ") + tz;
+}
+
 async function sendResponse(ctx: BotContext, response: string): Promise<void> {
   try {
     await ctx.reply(response, { parse_mode: "Markdown" });
@@ -41,7 +52,7 @@ export const handleMessage = withErrorHandling("message", async (ctx) => {
   const text = ctx.message?.text;
   if (!text) return;
 
-  const response = await generateResponse(ctx.chat.id, text);
+  const response = await generateResponse(ctx.chat.id, `${timestamp()} ${text}`);
   if (shouldSendResponse(response)) {
     await sendResponse(ctx, response);
   }
@@ -55,7 +66,7 @@ export const handlePhoto = withErrorHandling("image", async (ctx) => {
   const localPath = await downloadTelegramFile(ctx, photo.file_id, "photo.jpg");
 
   const caption = ctx.message?.caption ?? "I sent you an image. What do you see?";
-  const prompt = `[User sent an image saved at: ${localPath}]\n\n${caption}`;
+  const prompt = `${timestamp()} [User sent an image saved at: ${localPath}]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
   await sendResponse(ctx, response);
@@ -69,7 +80,7 @@ export const handleDocument = withErrorHandling("file", async (ctx) => {
   const localPath = await downloadTelegramFile(ctx, doc.file_id, fileName);
 
   const caption = ctx.message?.caption ?? `I sent you a file: ${fileName}`;
-  const prompt = `[User sent a file saved at: ${localPath} (filename: ${fileName})]\n\n${caption}`;
+  const prompt = `${timestamp()} [User sent a file saved at: ${localPath} (filename: ${fileName})]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
   await sendResponse(ctx, response);
@@ -84,9 +95,10 @@ export const handleVoice = withErrorHandling("voice message", async (ctx) => {
   logger.info("Voice message transcribed", { transcription });
 
   const caption = ctx.message?.caption;
+  const ts = timestamp();
   const prompt = caption
-    ? `[Voice message transcribed: "${transcription}"]\n\n${caption}`
-    : transcription;
+    ? `${ts} [Voice message transcribed: "${transcription}"]\n\n${caption}`
+    : `${ts} ${transcription}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
   await sendResponse(ctx, response);
@@ -104,7 +116,7 @@ export const handleAudio = withErrorHandling("audio file", async (ctx) => {
   logger.info("Audio file transcribed", { fileName, transcription });
 
   const caption = ctx.message?.caption ?? `I sent you an audio file: ${fileName}`;
-  const prompt = `[Audio file "${fileName}" transcribed: "${transcription}"]\n\n${caption}`;
+  const prompt = `${timestamp()} [Audio file "${fileName}" transcribed: "${transcription}"]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
   await sendResponse(ctx, response);
@@ -118,7 +130,7 @@ export const handleVideo = withErrorHandling("video", async (ctx) => {
   const localPath = await downloadTelegramFile(ctx, video.file_id, fileName);
 
   const caption = ctx.message?.caption ?? `I sent you a video: ${fileName}`;
-  const prompt = `[User sent a video saved at: ${localPath} (filename: ${fileName}, duration: ${video.duration}s)]\n\n${caption}`;
+  const prompt = `${timestamp()} [User sent a video saved at: ${localPath} (filename: ${fileName}, duration: ${video.duration}s)]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
   await sendResponse(ctx, response);
@@ -129,7 +141,7 @@ export const handleVideoNote = withErrorHandling("video note", async (ctx) => {
   if (!videoNote) return;
 
   const localPath = await downloadTelegramFile(ctx, videoNote.file_id, "video_note.mp4");
-  const prompt = `[User sent a video note (round video) saved at: ${localPath} (duration: ${videoNote.duration}s)]\n\nI sent you a video note.`;
+  const prompt = `${timestamp()} [User sent a video note (round video) saved at: ${localPath} (duration: ${videoNote.duration}s)]\n\nI sent you a video note.`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
   await sendResponse(ctx, response);
@@ -142,12 +154,13 @@ export const handleSticker = withErrorHandling("sticker", async (ctx) => {
   const emoji = sticker.emoji ?? "";
   const setName = sticker.set_name ?? "unknown";
 
+  const ts = timestamp();
   let prompt: string;
   if (sticker.is_animated || sticker.is_video) {
-    prompt = `[User sent a sticker: emoji ${emoji}, from set "${setName}"]`;
+    prompt = `${ts} [User sent a sticker: emoji ${emoji}, from set "${setName}"]`;
   } else {
     const localPath = await downloadTelegramFile(ctx, sticker.file_id, "sticker.webp");
-    prompt = `[User sent a sticker saved at: ${localPath} (emoji: ${emoji}, set: "${setName}")]`;
+    prompt = `${ts} [User sent a sticker saved at: ${localPath} (emoji: ${emoji}, set: "${setName}")]`;
   }
 
   const response = await generateResponse(ctx.chat.id, prompt);
