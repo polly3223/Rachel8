@@ -5,6 +5,15 @@ import { errorMessage } from "../../lib/errors.ts";
 import { downloadTelegramFile } from "./file.ts";
 import { transcribeAudio } from "./transcribe.ts";
 
+async function sendResponse(ctx: BotContext, response: string): Promise<void> {
+  try {
+    await ctx.reply(response, { parse_mode: "Markdown" });
+  } catch {
+    // Markdown parsing failed (e.g., unmatched * or _), fall back to plain text
+    await ctx.reply(response);
+  }
+}
+
 function withErrorHandling(
   mediaType: string,
   handler: (ctx: BotContext) => Promise<void>,
@@ -22,12 +31,20 @@ function withErrorHandling(
   };
 }
 
+const SKIP_RESPONSES = ["no response requested.", "no response requested", "no response needed.", "no response needed"];
+
+function shouldSendResponse(response: string): boolean {
+  return !SKIP_RESPONSES.includes(response.trim().toLowerCase());
+}
+
 export const handleMessage = withErrorHandling("message", async (ctx) => {
   const text = ctx.message?.text;
   if (!text) return;
 
   const response = await generateResponse(ctx.chat.id, text);
-  await ctx.reply(response);
+  if (shouldSendResponse(response)) {
+    await sendResponse(ctx, response);
+  }
 });
 
 export const handlePhoto = withErrorHandling("image", async (ctx) => {
@@ -41,7 +58,7 @@ export const handlePhoto = withErrorHandling("image", async (ctx) => {
   const prompt = `[User sent an image saved at: ${localPath}]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
-  await ctx.reply(response);
+  await sendResponse(ctx, response);
 });
 
 export const handleDocument = withErrorHandling("file", async (ctx) => {
@@ -55,7 +72,7 @@ export const handleDocument = withErrorHandling("file", async (ctx) => {
   const prompt = `[User sent a file saved at: ${localPath} (filename: ${fileName})]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
-  await ctx.reply(response);
+  await sendResponse(ctx, response);
 });
 
 export const handleVoice = withErrorHandling("voice message", async (ctx) => {
@@ -72,7 +89,7 @@ export const handleVoice = withErrorHandling("voice message", async (ctx) => {
     : transcription;
 
   const response = await generateResponse(ctx.chat.id, prompt);
-  await ctx.reply(response);
+  await sendResponse(ctx, response);
 });
 
 export const handleAudio = withErrorHandling("audio file", async (ctx) => {
@@ -90,7 +107,7 @@ export const handleAudio = withErrorHandling("audio file", async (ctx) => {
   const prompt = `[Audio file "${fileName}" transcribed: "${transcription}"]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
-  await ctx.reply(response);
+  await sendResponse(ctx, response);
 });
 
 export const handleVideo = withErrorHandling("video", async (ctx) => {
@@ -104,7 +121,7 @@ export const handleVideo = withErrorHandling("video", async (ctx) => {
   const prompt = `[User sent a video saved at: ${localPath} (filename: ${fileName}, duration: ${video.duration}s)]\n\n${caption}`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
-  await ctx.reply(response);
+  await sendResponse(ctx, response);
 });
 
 export const handleVideoNote = withErrorHandling("video note", async (ctx) => {
@@ -115,7 +132,7 @@ export const handleVideoNote = withErrorHandling("video note", async (ctx) => {
   const prompt = `[User sent a video note (round video) saved at: ${localPath} (duration: ${videoNote.duration}s)]\n\nI sent you a video note.`;
 
   const response = await generateResponse(ctx.chat.id, prompt);
-  await ctx.reply(response);
+  await sendResponse(ctx, response);
 });
 
 export const handleSticker = withErrorHandling("sticker", async (ctx) => {
@@ -134,5 +151,5 @@ export const handleSticker = withErrorHandling("sticker", async (ctx) => {
   }
 
   const response = await generateResponse(ctx.chat.id, prompt);
-  await ctx.reply(response);
+  await sendResponse(ctx, response);
 });
