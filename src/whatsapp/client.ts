@@ -3,6 +3,8 @@
  *
  * Provides WhatsApp Web connectivity via QR code or pairing code.
  * Used by Rachel to manage WhatsApp on behalf of the user.
+ *
+ * Uses the bare Baileys reconnect pattern: on disconnect, call startSock() fresh.
  */
 
 import makeWASocket, {
@@ -28,6 +30,8 @@ const AUTH_DIR = join(
   "whatsapp-auth"
 );
 
+const BROWSER = Browsers.macOS("Google Chrome");
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -37,8 +41,117 @@ let connectionStatus: "disconnected" | "connecting" | "connected" = "disconnecte
 let lastQR: string | null = null;
 let contactNames = new Map<string, string>();
 
+// Callbacks for one-time connection events (QR ready, pairing code ready, connected)
+let onQR: ((qr: string) => void) | null = null;
+let onPairingCode: ((code: string) => void) | null = null;
+let onConnected: (() => void) | null = null;
+let onFailed: ((err: Error) => void) | null = null;
+
+// Connection mode for reconnects
+let currentMode: ConnectMode = "qr";
+let currentPhone: string | undefined;
+
 // ---------------------------------------------------------------------------
-// Connection
+// Core: startSock — the Baileys-recommended pattern
+// ---------------------------------------------------------------------------
+
+async function startSock(): Promise<void> {
+  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
+  sock = makeWASocket({
+    auth: state,
+    browser: BROWSER,
+    syncFullHistory: true,
+    printQRInTerminal: false,
+  });
+
+  sock.ev.on("creds.update", saveCreds);
+
+  const usePairing = currentMode === "pairing" && !!currentPhone;
+  let pairingRequested = false;
+
+  sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      lastQR = qr;
+
+      if (usePairing && !pairingRequested && !state.creds.registered) {
+        pairingRequested = true;
+        try {
+          const clean = currentPhone!.replace(/[^0-9]/g, "");
+          const code = await sock!.requestPairingCode(clean);
+          logger.info("WhatsApp pairing code generated", { code });
+          onPairingCode?.(code);
+          onPairingCode = null;
+        } catch (err) {
+          logger.error("Failed to request pairing code", { error: String(err) });
+          onFailed?.(err as Error);
+          onFailed = null;
+        }
+      } else if (!usePairing) {
+        onQR?.(qr);
+        onQR = null;
+      }
+    }
+
+    if (connection === "close") {
+      const code = (lastDisconnect?.error as any)?.output?.statusCode;
+      logger.warn("WhatsApp disconnected", { code });
+
+      if (code === DisconnectReason.loggedOut) {
+        connectionStatus = "disconnected";
+        sock = null;
+        logger.info("WhatsApp logged out — session cleared");
+      } else {
+        // 515 or any other disconnect — just call startSock() fresh
+        connectionStatus = "connecting";
+        sock = null;
+        logger.info("Reconnecting to WhatsApp...");
+        startSock();
+      }
+    } else if (connection === "open") {
+      connectionStatus = "connected";
+      lastQR = null;
+      logger.info("WhatsApp connected");
+      onConnected?.();
+      onConnected = null;
+    }
+  });
+
+  // Cache contact names as they sync
+  sock.ev.on("contacts.upsert", (contacts) => {
+    for (const c of contacts) {
+      const name = c.notify || c.name || c.id.split("@")[0];
+      contactNames.set(c.id, name);
+    }
+  });
+
+  sock.ev.on("contacts.update", (updates) => {
+    for (const u of updates) {
+      if (u.id && (u.notify || u.name)) {
+        contactNames.set(u.id, u.notify || u.name || u.id.split("@")[0]);
+      }
+    }
+  });
+
+  // Listen for messages
+  sock.ev.on("messages.upsert", ({ messages }) => {
+    for (const msg of messages) {
+      const jid = msg.key.remoteJid;
+      if (!jid) continue;
+      const existing = messageCache.get(jid) ?? [];
+      existing.push(msg);
+      if (existing.length > MAX_CACHED_PER_CHAT) {
+        existing.splice(0, existing.length - MAX_CACHED_PER_CHAT);
+      }
+      messageCache.set(jid, existing);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Connection API
 // ---------------------------------------------------------------------------
 
 export type ConnectMode = "pairing" | "qr";
@@ -51,89 +164,33 @@ export async function connect(
     return { alreadyConnected: true };
   }
 
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  currentMode = mode;
+  currentPhone = phoneNumber;
   connectionStatus = "connecting";
 
-  const usePairing = mode === "pairing" && !!phoneNumber;
-
   return new Promise((resolve, reject) => {
-    sock = makeWASocket({
-      auth: state,
-      browser: usePairing ? Browsers.ubuntu("Chrome") : Browsers.macOS("Desktop"),
-      syncFullHistory: false,
-      printQRInTerminal: false,
-    });
-
-    sock.ev.on("creds.update", saveCreds);
-
-    let pairingRequested = false;
-
-    sock.ev.on("connection.update", async (update) => {
-      const { qr, connection, lastDisconnect } = update;
-
-      if (qr) {
-        lastQR = qr;
-
-        if (usePairing && !pairingRequested) {
-          // Request pairing code instead of showing QR
-          pairingRequested = true;
-          try {
-            const clean = phoneNumber!.replace(/[^0-9]/g, "");
-            const code = await sock!.requestPairingCode(clean);
-            logger.info("WhatsApp pairing code generated", { code });
-            resolve({ pairingCode: code });
-          } catch (err) {
-            logger.error("Failed to request pairing code", { error: String(err) });
-            reject(err);
-          }
-        } else if (!usePairing) {
-          // QR mode
-          try {
-            const dataUrl = await QRCode.toDataURL(qr, { width: 400 });
-            resolve({ qrDataUrl: dataUrl });
-          } catch (err) {
-            logger.error("Failed to generate QR", { error: String(err) });
-            reject(err);
-          }
-        }
+    onQR = async (qr: string) => {
+      try {
+        const dataUrl = await QRCode.toDataURL(qr, { width: 400 });
+        resolve({ qrDataUrl: dataUrl });
+      } catch (err) {
+        reject(err);
       }
+    };
 
-      if (connection === "open") {
-        connectionStatus = "connected";
-        lastQR = null;
-        logger.info("WhatsApp connected");
-        resolve({ alreadyConnected: true });
-      }
+    onPairingCode = (code: string) => {
+      resolve({ pairingCode: code });
+    };
 
-      if (connection === "close") {
-        connectionStatus = "disconnected";
-        const code = (lastDisconnect?.error as any)?.output?.statusCode;
-        if (code === DisconnectReason.loggedOut) {
-          logger.info("WhatsApp logged out — session cleared");
-          sock = null;
-        } else {
-          logger.warn("WhatsApp disconnected, will reconnect on next command", { code });
-          sock = null;
-        }
-      }
-    });
+    onConnected = () => {
+      resolve({ alreadyConnected: true });
+    };
 
-    // Cache contact names as they sync
-    sock.ev.on("contacts.upsert", (contacts) => {
-      for (const c of contacts) {
-        const name = c.notify || c.name || c.id.split("@")[0];
-        contactNames.set(c.id, name);
-      }
-    });
+    onFailed = (err: Error) => {
+      reject(err);
+    };
 
-    // Also listen for contact updates
-    sock.ev.on("contacts.update", (updates) => {
-      for (const u of updates) {
-        if (u.id && (u.notify || u.name)) {
-          contactNames.set(u.id, u.notify || u.name || u.id.split("@")[0]);
-        }
-      }
-    });
+    startSock().catch(reject);
   });
 }
 
@@ -221,8 +278,10 @@ export async function getGroupContacts(groupJidOrName: string): Promise<{ groupN
   }
 
   const contacts: GroupContact[] = metadata.participants.map((p) => {
-    const phone = p.id.split("@")[0];
-    const name = contactNames.get(p.id) || phone;
+    // Use phoneNumber field (real number) if available, fall back to id (may be LID)
+    const phoneJid = (p as any).phoneNumber ?? p.id;
+    const phone = phoneJid.split("@")[0];
+    const name = contactNames.get(p.id) || contactNames.get(phoneJid) || phone;
     return {
       phone,
       name,
@@ -278,27 +337,14 @@ export async function sendFile(to: string, filePath: string, caption?: string): 
 }
 
 // ---------------------------------------------------------------------------
-// Read recent messages (from history sync cache)
+// Message cache
 // ---------------------------------------------------------------------------
 
 const messageCache: Map<string, proto.IWebMessageInfo[]> = new Map();
 const MAX_CACHED_PER_CHAT = 200;
 
-export function setupMessageListener(): void {
-  if (!sock) return;
-  sock.ev.on("messages.upsert", ({ messages }) => {
-    for (const msg of messages) {
-      const jid = msg.key.remoteJid;
-      if (!jid) continue;
-      const existing = messageCache.get(jid) ?? [];
-      existing.push(msg);
-      if (existing.length > MAX_CACHED_PER_CHAT) {
-        existing.splice(0, existing.length - MAX_CACHED_PER_CHAT);
-      }
-      messageCache.set(jid, existing);
-    }
-  });
-}
+// setupMessageListener is now a no-op — messages are listened in startSock()
+export function setupMessageListener(): void {}
 
 export interface SimpleMessage {
   from: string;
@@ -308,10 +354,8 @@ export interface SimpleMessage {
 }
 
 export function getRecentMessages(chatJidOrName: string, limit = 20): SimpleMessage[] {
-  // Try exact JID
   let messages = messageCache.get(chatJidOrName);
 
-  // Fuzzy match by name/number
   if (!messages) {
     const lower = chatJidOrName.toLowerCase();
     for (const [jid, msgs] of messageCache.entries()) {
@@ -377,16 +421,13 @@ function assertConnected(): asserts sock is WASocket {
 }
 
 function resolveJid(input: string): string {
-  // Already a JID
   if (input.includes("@")) return input;
 
-  // Phone number — strip + and spaces
   const clean = input.replace(/[^0-9]/g, "");
   if (clean.length >= 7) {
     return `${clean}@s.whatsapp.net`;
   }
 
-  // Try name search
   for (const [jid, name] of contactNames.entries()) {
     if (name.toLowerCase().includes(input.toLowerCase())) {
       return jid;

@@ -101,7 +101,7 @@ async function main() {
         console.log("Send this image to the user on Telegram so they can scan it.");
         console.log("Waiting for scan...");
 
-        const timeout = Date.now() + 60_000;
+        const timeout = Date.now() + 120_000;
         while (Date.now() < timeout) {
           await new Promise((r) => setTimeout(r, 2000));
           if (isConnected()) {
