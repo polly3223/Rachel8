@@ -11,8 +11,10 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.38",
     "@clack/prompts": "^1.0.0",
     "@grammyjs/auto-chat-action": "^0.1.1",
-
+    "@types/qrcode": "^1.5.6",
+    "baileys": "^7.0.0-rc.9",
     "grammy": "^1.40.0",
+    "qrcode": "^1.5.4",
     "three": "0.160.0",
     "zod": "^4.3.6"
   },
