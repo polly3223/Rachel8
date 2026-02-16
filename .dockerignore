@@ -1,0 +1,48 @@
+# Version control (50MB+ savings)
+.git
+.gitignore
+
+# Dependencies (installed inside container via bun install)
+node_modules
+
+# Environment files (secrets must NEVER be baked into images)
+.env
+.env.*
+!.env.example
+
+# Logs and temp files
+*.log
+logs/
+tmp/
+.sessions.json
+
+# Development and planning files
+.planning/
+clara-page/
+
+# Documentation (not needed at runtime)
+*.md
+!README.md
+
+# Test files
+test/
+tests/
+*.test.ts
+*.spec.ts
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+
+# Docker files (prevent recursive context)
+docker-compose*.yml
+
+# WhatsApp auth (user-specific, not baked into image)
+whatsapp-auth/
