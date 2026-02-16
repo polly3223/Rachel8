@@ -3,15 +3,16 @@
  * WhatsApp CLI — used by Rachel agent to interact with WhatsApp.
  *
  * Usage:
- *   bun run src/whatsapp/cli.ts connect          → Generate QR code (saved as PNG)
- *   bun run src/whatsapp/cli.ts status            → Check connection status
- *   bun run src/whatsapp/cli.ts groups            → List all groups
- *   bun run src/whatsapp/cli.ts contacts <group>  → Export group contacts as CSV
- *   bun run src/whatsapp/cli.ts send <to> <msg>   → Send a message
+ *   bun run src/whatsapp/cli.ts connect <phone>   → Pairing code (default, phone-only)
+ *   bun run src/whatsapp/cli.ts connect-qr         → QR code (saved as PNG)
+ *   bun run src/whatsapp/cli.ts status              → Check connection status
+ *   bun run src/whatsapp/cli.ts groups              → List all groups
+ *   bun run src/whatsapp/cli.ts contacts <group>    → Export group contacts as CSV
+ *   bun run src/whatsapp/cli.ts send <to> <msg>     → Send a message
  *   bun run src/whatsapp/cli.ts send-file <to> <path> [caption]  → Send a file
  *   bun run src/whatsapp/cli.ts messages <chat> [limit]  → Read recent messages
- *   bun run src/whatsapp/cli.ts search <query>    → Search contacts by name/number
- *   bun run src/whatsapp/cli.ts disconnect         → Logout and clear session
+ *   bun run src/whatsapp/cli.ts search <query>      → Search contacts by name/number
+ *   bun run src/whatsapp/cli.ts disconnect           → Logout and clear session
  */
 
 import {
@@ -38,18 +39,61 @@ const [command, ...args] = process.argv.slice(2);
 async function main() {
   switch (command) {
     case "connect": {
-      console.log("Connecting to WhatsApp...");
-      const result = await connect();
+      // Default: pairing code (needs phone number)
+      const phone = args[0];
+      if (!phone) {
+        console.error("Usage: connect <phone number with country code>");
+        console.error("Example: connect +393343502266");
+        console.error("\nFor QR code login instead, use: connect-qr");
+        process.exit(1);
+      }
+
+      console.log("Connecting to WhatsApp via pairing code...");
+      const result = await connect("pairing", phone);
 
       if (result.alreadyConnected) {
         console.log("Already connected to WhatsApp!");
-        // Wait a moment for contacts to sync, then set up listener
+        setupMessageListener();
+        return;
+      }
+
+      if (result.pairingCode) {
+        console.log(`\nPairing code: ${result.pairingCode}`);
+        console.log("\nTell the user to:");
+        console.log("1. Open WhatsApp on their phone");
+        console.log("2. Go to Settings → Linked Devices → Link a Device");
+        console.log("3. Tap 'Link with phone number instead'");
+        console.log(`4. Enter this code: ${result.pairingCode}`);
+        console.log("\nWaiting for pairing...");
+
+        // Wait for connection (up to 120 seconds for pairing)
+        const timeout = Date.now() + 120_000;
+        while (Date.now() < timeout) {
+          await new Promise((r) => setTimeout(r, 2000));
+          if (isConnected()) {
+            console.log("WhatsApp connected successfully!");
+            setupMessageListener();
+            await new Promise((r) => setTimeout(r, 3000));
+            return;
+          }
+        }
+        console.error("Timed out waiting for pairing. Try again.");
+        process.exit(1);
+      }
+      break;
+    }
+
+    case "connect-qr": {
+      console.log("Connecting to WhatsApp via QR code...");
+      const result = await connect("qr");
+
+      if (result.alreadyConnected) {
+        console.log("Already connected to WhatsApp!");
         setupMessageListener();
         return;
       }
 
       if (result.qrDataUrl) {
-        // Save QR as PNG file
         const base64 = result.qrDataUrl.split(",")[1];
         const buffer = Buffer.from(base64, "base64");
         await Bun.write(QR_PATH, buffer);
@@ -57,15 +101,12 @@ async function main() {
         console.log("Send this image to the user on Telegram so they can scan it.");
         console.log("Waiting for scan...");
 
-        // Wait for connection (up to 60 seconds)
         const timeout = Date.now() + 60_000;
         while (Date.now() < timeout) {
           await new Promise((r) => setTimeout(r, 2000));
           if (isConnected()) {
             console.log("WhatsApp connected successfully!");
             setupMessageListener();
-
-            // Give contacts a few seconds to sync
             await new Promise((r) => setTimeout(r, 3000));
             return;
           }
@@ -207,7 +248,8 @@ async function main() {
       console.log(`WhatsApp Bridge CLI
 
 Commands:
-  connect              Generate QR code for WhatsApp Web login
+  connect <phone>      Link via pairing code (default, phone-only flow)
+  connect-qr           Link via QR code (needs second screen)
   status               Check connection status
   groups               List all WhatsApp groups
   contacts <group>     Export group contacts as CSV
@@ -217,6 +259,7 @@ Commands:
   search <query>       Search contacts by name or phone
   disconnect           Logout and clear session
 
+<phone> = number with country code, e.g. +393343502266
 <to> can be: phone number, contact name, or JID`);
   }
 
@@ -227,12 +270,16 @@ Commands:
 
 async function ensureConnected(): Promise<void> {
   if (!isConnected()) {
-    const result = await connect();
+    // Try to restore from saved session (no interactive auth)
+    const result = await connect("qr");
     if (!result.alreadyConnected && !isConnected()) {
-      console.error("WhatsApp not connected. Run 'connect' first to scan QR code.");
-      process.exit(1);
+      // Wait a few seconds — session might still be restoring
+      await new Promise((r) => setTimeout(r, 5000));
+      if (!isConnected()) {
+        console.error("WhatsApp not connected. Run 'connect <phone>' first to link your account.");
+        process.exit(1);
+      }
     }
-    // Wait for contacts to sync
     setupMessageListener();
     await new Promise((r) => setTimeout(r, 3000));
   }

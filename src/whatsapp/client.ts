@@ -41,7 +41,12 @@ let contactNames = new Map<string, string>();
 // Connection
 // ---------------------------------------------------------------------------
 
-export async function connect(): Promise<{ qrDataUrl?: string; pairingCode?: string; alreadyConnected?: boolean }> {
+export type ConnectMode = "pairing" | "qr";
+
+export async function connect(
+  mode: ConnectMode = "pairing",
+  phoneNumber?: string,
+): Promise<{ qrDataUrl?: string; pairingCode?: string; alreadyConnected?: boolean }> {
   if (connectionStatus === "connected" && sock) {
     return { alreadyConnected: true };
   }
@@ -49,26 +54,47 @@ export async function connect(): Promise<{ qrDataUrl?: string; pairingCode?: str
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   connectionStatus = "connecting";
 
+  const usePairing = mode === "pairing" && !!phoneNumber;
+
   return new Promise((resolve, reject) => {
     sock = makeWASocket({
       auth: state,
-      browser: Browsers.macOS("Desktop"),
+      browser: usePairing ? Browsers.ubuntu("Chrome") : Browsers.macOS("Desktop"),
       syncFullHistory: false,
+      printQRInTerminal: false,
     });
 
     sock.ev.on("creds.update", saveCreds);
+
+    let pairingRequested = false;
 
     sock.ev.on("connection.update", async (update) => {
       const { qr, connection, lastDisconnect } = update;
 
       if (qr) {
         lastQR = qr;
-        try {
-          const dataUrl = await QRCode.toDataURL(qr, { width: 400 });
-          resolve({ qrDataUrl: dataUrl });
-        } catch (err) {
-          logger.error("Failed to generate QR", { error: String(err) });
-          reject(err);
+
+        if (usePairing && !pairingRequested) {
+          // Request pairing code instead of showing QR
+          pairingRequested = true;
+          try {
+            const clean = phoneNumber!.replace(/[^0-9]/g, "");
+            const code = await sock!.requestPairingCode(clean);
+            logger.info("WhatsApp pairing code generated", { code });
+            resolve({ pairingCode: code });
+          } catch (err) {
+            logger.error("Failed to request pairing code", { error: String(err) });
+            reject(err);
+          }
+        } else if (!usePairing) {
+          // QR mode
+          try {
+            const dataUrl = await QRCode.toDataURL(qr, { width: 400 });
+            resolve({ qrDataUrl: dataUrl });
+          } catch (err) {
+            logger.error("Failed to generate QR", { error: String(err) });
+            reject(err);
+          }
         }
       }
 
@@ -76,7 +102,6 @@ export async function connect(): Promise<{ qrDataUrl?: string; pairingCode?: str
         connectionStatus = "connected";
         lastQR = null;
         logger.info("WhatsApp connected");
-        // If we were already waiting on QR, this will be a no-op
         resolve({ alreadyConnected: true });
       }
 

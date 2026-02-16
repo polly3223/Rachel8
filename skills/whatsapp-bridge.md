@@ -9,19 +9,44 @@ The WhatsApp CLI lives at `src/whatsapp/cli.ts`. Run commands with:
 bun run src/whatsapp/cli.ts <command> [args...]
 ```
 
-## First-time Connection
+## First-time Connection (Pairing Code — Default)
 
 When the user asks to connect WhatsApp:
 
-1. Run: `bun run src/whatsapp/cli.ts connect`
-2. This generates a QR code image at `/home/rachel/shared/whatsapp-qr.png`
-3. **Send this QR image to the user on Telegram** so they can scan it with their phone
-4. The script waits up to 60 seconds for the scan
-5. Once scanned, the session persists — no need to scan again on restart
+1. Ask the user for their phone number (with country code, e.g. +393343502266)
+2. Run: `bun run src/whatsapp/cli.ts connect "+393343502266"`
+3. This returns an 8-character pairing code (e.g. `ABCD-EFGH`)
+4. **Send the pairing code to the user on Telegram** and tell them:
+   - Open WhatsApp → Settings → Linked Devices → Link a Device
+   - Tap "Link with phone number instead"
+   - Enter the code
+5. The script waits up to 120 seconds for pairing
+6. Once paired, the session persists — no need to pair again on restart
 
-Tell the user: "Open WhatsApp → Settings → Linked Devices → Link a Device → scan this QR code"
+This is the preferred method because it works entirely on the phone — no second screen needed!
+
+## Alternative: QR Code Connection
+
+If the user explicitly asks for QR code login (e.g. they have a second device):
+
+1. Run: `bun run src/whatsapp/cli.ts connect-qr`
+2. This saves a QR code image at `/home/rachel/shared/whatsapp-qr.png`
+3. **Send this QR image to the user on Telegram** so they can scan it
+4. Tell the user: "Open WhatsApp → Settings → Linked Devices → Link a Device → scan this QR code"
 
 ## Available Commands
+
+### Connect via pairing code (default)
+```bash
+bun run src/whatsapp/cli.ts connect "+393343502266"
+```
+Returns a pairing code to give to the user. Phone number must include country code.
+
+### Connect via QR code (alternative)
+```bash
+bun run src/whatsapp/cli.ts connect-qr
+```
+Saves QR image to `/home/rachel/shared/whatsapp-qr.png`. Send it to the user on Telegram.
 
 ### Check status
 ```bash
@@ -88,7 +113,8 @@ Logs out and clears the session. User will need to scan QR again.
 
 | User says | What to do |
 |-----------|------------|
-| "Connect my WhatsApp" | Run `connect`, send QR image |
+| "Connect my WhatsApp" | Ask for phone number, run `connect "<phone>"`, send pairing code |
+| "Connect WhatsApp with QR" | Run `connect-qr`, send QR image |
 | "Show my WhatsApp groups" | Run `groups` |
 | "Export contacts from [group]" | Run `contacts "[group]"`, send CSV |
 | "Send [message] to [person]" | Run `send "[person]" "[message]"` |
