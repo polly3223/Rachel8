@@ -24,7 +24,7 @@ import { logger } from "../lib/logger.ts";
 // ---------------------------------------------------------------------------
 
 const AUTH_DIR = join(
-  process.env.HOME ?? "/home/rachel",
+  process.env["HOME"] ?? "/home/rachel",
   "shared",
   "rachel-memory",
   "whatsapp-auth"
@@ -39,7 +39,6 @@ const CONTACTS_FILE = join(AUTH_DIR, "contact-names.json");
 
 let sock: WASocket | null = null;
 let connectionStatus: "disconnected" | "connecting" | "connected" = "disconnected";
-let lastQR: string | null = null;
 let contactNames = new Map<string, string>();
 
 // Load persisted contact names from disk
@@ -93,8 +92,6 @@ async function startSock(): Promise<void> {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      lastQR = qr;
-
       if (usePairing && !pairingRequested && !state.creds.registered) {
         pairingRequested = true;
         try {
@@ -131,7 +128,6 @@ async function startSock(): Promise<void> {
       }
     } else if (connection === "open") {
       connectionStatus = "connected";
-      lastQR = null;
       logger.info("WhatsApp connected");
       onConnected?.();
       onConnected = null;
@@ -407,21 +403,22 @@ export function getRecentMessages(chatJidOrName: string, limit = 20): SimpleMess
 
   return messages
     .slice(-limit)
-    .map((msg) => ({
-      from: contactNames.get(msg.key.participant ?? msg.key.remoteJid ?? "") ??
-        msg.key.participant ??
-        msg.key.remoteJid ??
-        "unknown",
-      fromMe: msg.key.fromMe ?? false,
-      text:
-        msg.message?.conversation ??
-        msg.message?.extendedTextMessage?.text ??
-        msg.message?.imageMessage?.caption ??
-        msg.message?.videoMessage?.caption ??
-        (msg.message?.documentMessage ? `[Document: ${msg.message.documentMessage.fileName}]` : "") ??
-        "[media]",
-      timestamp: Number(msg.messageTimestamp ?? 0),
-    }));
+    .map((msg) => {
+      const key = msg.key;
+      const participant = key?.participant ?? key?.remoteJid ?? "";
+      return {
+        from: contactNames.get(participant) ?? (participant || "unknown"),
+        fromMe: key?.fromMe ?? false,
+        text:
+          (msg.message?.conversation ??
+          msg.message?.extendedTextMessage?.text ??
+          msg.message?.imageMessage?.caption ??
+          msg.message?.videoMessage?.caption ??
+          (msg.message?.documentMessage ? `[Document: ${msg.message.documentMessage.fileName ?? "file"}]` : "")) ||
+          "[media]",
+        timestamp: Number(msg.messageTimestamp ?? 0),
+      };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +436,7 @@ export function searchContacts(query: string): Array<{ jid: string; name: string
       results.push({
         jid,
         name,
-        phone: jid.split("@")[0],
+        phone: jid.split("@")[0] ?? jid,
       });
     }
   }
@@ -450,7 +447,7 @@ export function searchContacts(query: string): Array<{ jid: string; name: string
 // Helpers
 // ---------------------------------------------------------------------------
 
-function assertConnected(): asserts sock is WASocket {
+function assertConnected(): void {
   if (!sock || connectionStatus !== "connected") {
     throw new Error("WhatsApp not connected. Use connect() first.");
   }

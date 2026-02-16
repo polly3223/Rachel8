@@ -62,7 +62,12 @@ function parseCronField(field: string, max: number): number[] {
 }
 
 function getNextCronRun(pattern: string, after: number = Date.now()): number {
-  const [minPart, hourPart, domPart, monPart, dowPart] = pattern.split(" ");
+  const parts = pattern.split(" ");
+  const minPart = parts[0] ?? "*";
+  const hourPart = parts[1] ?? "*";
+  const domPart = parts[2] ?? "*";
+  const monPart = parts[3] ?? "*";
+  const dowPart = parts[4] ?? "*";
 
   const minutes = parseCronField(minPart, 60);
   const hours = parseCronField(hourPart, 24);

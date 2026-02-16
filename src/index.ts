@@ -5,6 +5,7 @@ import { errorMessage } from "./lib/errors.ts";
 import { initializeMemorySystem } from "./lib/memory.ts";
 import { setTelegramSender, setAgentExecutor, startTaskPoller, shutdownTasks } from "./lib/tasks.ts";
 import { generateResponse } from "./ai/claude.ts";
+import { setShuttingDown } from "./lib/state.ts";
 
 logger.info("Rachel8 starting...", { env: env.NODE_ENV });
 logger.info("Configuration loaded", {
@@ -25,6 +26,7 @@ setAgentExecutor(async (prompt: string) => {
 startTaskPoller();
 
 function shutdown(): void {
+  setShuttingDown();
   shutdownTasks();
   bot.stop();
 }

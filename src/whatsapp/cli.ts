@@ -18,7 +18,6 @@
 import {
   connect,
   disconnect,
-  getStatus,
   isConnected,
   listGroups,
   getGroupContacts,
@@ -31,7 +30,7 @@ import {
 } from "./client.ts";
 import { join } from "path";
 
-const SHARED = join(process.env.HOME ?? "/home/rachel", "shared");
+const SHARED = join(process.env["HOME"] ?? "/home/rachel", "shared");
 const QR_PATH = join(SHARED, "whatsapp-qr.png");
 
 const [command, ...args] = process.argv.slice(2);
@@ -94,7 +93,7 @@ async function main() {
       }
 
       if (result.qrDataUrl) {
-        const base64 = result.qrDataUrl.split(",")[1];
+        const base64 = result.qrDataUrl.split(",")[1] ?? "";
         const buffer = Buffer.from(base64, "base64");
         await Bun.write(QR_PATH, buffer);
         console.log(`QR code saved to: ${QR_PATH}`);

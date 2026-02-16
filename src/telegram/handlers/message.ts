@@ -2,6 +2,7 @@ import type { BotContext } from "../bot.ts";
 import { generateResponse } from "../../ai/claude.ts";
 import { logger } from "../../lib/logger.ts";
 import { errorMessage } from "../../lib/errors.ts";
+import { isShuttingDown } from "../../lib/state.ts";
 import { downloadTelegramFile } from "./file.ts";
 import { transcribeAudio } from "./transcribe.ts";
 
@@ -10,7 +11,7 @@ function timestamp(): string {
   const dt = now.toLocaleString("en-GB", { timeZone: "Europe/Zurich", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
   // Check if CET or CEST: CET=UTC+1, CEST=UTC+2
   const utcH = now.getUTCHours();
-  const localH = Number(dt.split(", ")[1].split(":")[0]);
+  const localH = Number(dt.split(", ")[1]?.split(":")[0] ?? "0");
   const offset = ((localH - utcH) + 24) % 24;
   const tz = offset === 2 ? "CEST" : "CET";
   return dt.replace(", ", " ") + tz;
@@ -34,6 +35,12 @@ function withErrorHandling(
     try {
       await handler(ctx);
     } catch (error) {
+      // During shutdown (e.g. restart), the Claude process gets killed by SIGTERM.
+      // This is expected — don't log an error or send a confusing reply to the user.
+      if (isShuttingDown()) {
+        logger.info(`Shutdown interrupted ${mediaType} handler (expected)`);
+        return;
+      }
       logger.error(`Failed to handle ${mediaType}`, {
         error: errorMessage(error),
       });
@@ -52,7 +59,7 @@ export const handleMessage = withErrorHandling("message", async (ctx) => {
   const text = ctx.message?.text;
   if (!text) return;
 
-  const response = await generateResponse(ctx.chat.id, `${timestamp()} ${text}`);
+  const response = await generateResponse(ctx.chat!.id, `${timestamp()} ${text}`);
   if (shouldSendResponse(response)) {
     await sendResponse(ctx, response);
   }
@@ -62,13 +69,13 @@ export const handlePhoto = withErrorHandling("image", async (ctx) => {
   const photos = ctx.message?.photo;
   if (!photos?.length) return;
 
-  const photo = photos[photos.length - 1];
+  const photo = photos[photos.length - 1]!;
   const localPath = await downloadTelegramFile(ctx, photo.file_id, "photo.jpg");
 
   const caption = ctx.message?.caption ?? "I sent you an image. What do you see?";
   const prompt = `${timestamp()} [User sent an image saved at: ${localPath}]\n\n${caption}`;
 
-  const response = await generateResponse(ctx.chat.id, prompt);
+  const response = await generateResponse(ctx.chat!.id, prompt);
   await sendResponse(ctx, response);
 });
 
@@ -82,7 +89,7 @@ export const handleDocument = withErrorHandling("file", async (ctx) => {
   const caption = ctx.message?.caption ?? `I sent you a file: ${fileName}`;
   const prompt = `${timestamp()} [User sent a file saved at: ${localPath} (filename: ${fileName})]\n\n${caption}`;
 
-  const response = await generateResponse(ctx.chat.id, prompt);
+  const response = await generateResponse(ctx.chat!.id, prompt);
   await sendResponse(ctx, response);
 });
 
@@ -100,7 +107,7 @@ export const handleVoice = withErrorHandling("voice message", async (ctx) => {
     ? `${ts} [Voice message transcribed: "${transcription}"]\n\n${caption}`
     : `${ts} ${transcription}`;
 
-  const response = await generateResponse(ctx.chat.id, prompt);
+  const response = await generateResponse(ctx.chat!.id, prompt);
   await sendResponse(ctx, response);
 });
 
@@ -118,7 +125,7 @@ export const handleAudio = withErrorHandling("audio file", async (ctx) => {
   const caption = ctx.message?.caption ?? `I sent you an audio file: ${fileName}`;
   const prompt = `${timestamp()} [Audio file "${fileName}" transcribed: "${transcription}"]\n\n${caption}`;
 
-  const response = await generateResponse(ctx.chat.id, prompt);
+  const response = await generateResponse(ctx.chat!.id, prompt);
   await sendResponse(ctx, response);
 });
 
@@ -132,7 +139,7 @@ export const handleVideo = withErrorHandling("video", async (ctx) => {
   const caption = ctx.message?.caption ?? `I sent you a video: ${fileName}`;
   const prompt = `${timestamp()} [User sent a video saved at: ${localPath} (filename: ${fileName}, duration: ${video.duration}s)]\n\n${caption}`;
 
-  const response = await generateResponse(ctx.chat.id, prompt);
+  const response = await generateResponse(ctx.chat!.id, prompt);
   await sendResponse(ctx, response);
 });
 
@@ -143,7 +150,7 @@ export const handleVideoNote = withErrorHandling("video note", async (ctx) => {
   const localPath = await downloadTelegramFile(ctx, videoNote.file_id, "video_note.mp4");
   const prompt = `${timestamp()} [User sent a video note (round video) saved at: ${localPath} (duration: ${videoNote.duration}s)]\n\nI sent you a video note.`;
 
-  const response = await generateResponse(ctx.chat.id, prompt);
+  const response = await generateResponse(ctx.chat!.id, prompt);
   await sendResponse(ctx, response);
 });
 
@@ -163,6 +170,6 @@ export const handleSticker = withErrorHandling("sticker", async (ctx) => {
     prompt = `${ts} [User sent a sticker saved at: ${localPath} (emoji: ${emoji}, set: "${setName}")]`;
   }
 
-  const response = await generateResponse(ctx.chat.id, prompt);
+  const response = await generateResponse(ctx.chat!.id, prompt);
   await sendResponse(ctx, response);
 });
