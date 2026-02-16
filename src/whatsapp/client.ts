@@ -31,6 +31,7 @@ const AUTH_DIR = join(
 );
 
 const BROWSER = Browsers.macOS("Google Chrome");
+const CONTACTS_FILE = join(AUTH_DIR, "contact-names.json");
 
 // ---------------------------------------------------------------------------
 // State
@@ -40,6 +41,23 @@ let sock: WASocket | null = null;
 let connectionStatus: "disconnected" | "connecting" | "connected" = "disconnected";
 let lastQR: string | null = null;
 let contactNames = new Map<string, string>();
+
+// Load persisted contact names from disk
+async function loadContactNames(): Promise<void> {
+  try {
+    const data = await Bun.file(CONTACTS_FILE).text();
+    const parsed = JSON.parse(data) as Record<string, string>;
+    for (const [k, v] of Object.entries(parsed)) {
+      contactNames.set(k, v);
+    }
+  } catch { /* no file yet */ }
+}
+
+async function saveContactNames(): Promise<void> {
+  const obj: Record<string, string> = {};
+  for (const [k, v] of contactNames) obj[k] = v;
+  await Bun.write(CONTACTS_FILE, JSON.stringify(obj));
+}
 
 // Callbacks for one-time connection events (QR ready, pairing code ready, connected)
 let onQR: ((qr: string) => void) | null = null;
@@ -56,6 +74,7 @@ let currentPhone: string | undefined;
 // ---------------------------------------------------------------------------
 
 async function startSock(): Promise<void> {
+  await loadContactNames();
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
   sock = makeWASocket({
@@ -119,20 +138,37 @@ async function startSock(): Promise<void> {
     }
   });
 
-  // Cache contact names as they sync
+  // Cache contact names as they sync — persist to disk
   sock.ev.on("contacts.upsert", (contacts) => {
     for (const c of contacts) {
-      const name = c.notify || c.name || c.id.split("@")[0];
-      contactNames.set(c.id, name);
+      const name = c.notify || c.name;
+      if (name) contactNames.set(c.id, name);
     }
+    saveContactNames();
   });
 
   sock.ev.on("contacts.update", (updates) => {
     for (const u of updates) {
-      if (u.id && (u.notify || u.name)) {
-        contactNames.set(u.id, u.notify || u.name || u.id.split("@")[0]);
+      const name = (u as any).notify || (u as any).name;
+      if (name && u.id) contactNames.set(u.id, name);
+    }
+    saveContactNames();
+  });
+
+  // Collect push names from history sync
+  sock.ev.on("messaging-history.set", (data) => {
+    for (const c of (data as any).contacts ?? []) {
+      const n = c.notify || c.name;
+      if (n) contactNames.set(c.id, n);
+    }
+    for (const msg of (data as any).messages ?? []) {
+      if (msg.pushName) {
+        const sender = msg.key?.participant || msg.key?.remoteJid || "";
+        if (sender) contactNames.set(sender, msg.pushName);
       }
     }
+    logger.info("History sync received", { contacts: contactNames.size });
+    saveContactNames();
   });
 
   // Listen for messages
@@ -421,17 +457,41 @@ function assertConnected(): asserts sock is WASocket {
 }
 
 function resolveJid(input: string): string {
-  if (input.includes("@")) return input;
+  if (input.includes("@s.whatsapp.net")) return input;
+  if (input.includes("@g.us")) return input;
 
+  // Phone number — strip + and spaces
   const clean = input.replace(/[^0-9]/g, "");
   if (clean.length >= 7) {
     return `${clean}@s.whatsapp.net`;
   }
 
+  // Name search — find in contacts, prefer @s.whatsapp.net JIDs over @lid
+  const lower = input.toLowerCase();
+  let lidMatch: string | null = null;
+
   for (const [jid, name] of contactNames.entries()) {
-    if (name.toLowerCase().includes(input.toLowerCase())) {
-      return jid;
+    if (name.toLowerCase().includes(lower)) {
+      if (jid.endsWith("@s.whatsapp.net")) {
+        return jid; // Perfect match — real phone JID
+      }
+      if (!lidMatch) lidMatch = jid;
     }
+  }
+
+  // If we only found a LID match, try to resolve it to a phone JID
+  if (lidMatch && lidMatch.endsWith("@lid")) {
+    // Look up the LID's name, then find a @s.whatsapp.net entry with the same name
+    const lidName = contactNames.get(lidMatch);
+    if (lidName) {
+      for (const [jid, name] of contactNames.entries()) {
+        if (jid.endsWith("@s.whatsapp.net") && name === lidName) {
+          return jid;
+        }
+      }
+    }
+    // No phone JID found — return LID as last resort (may work for some operations)
+    return lidMatch;
   }
 
   throw new Error(`Cannot resolve "${input}" to a WhatsApp contact. Try a phone number or exact name.`);

@@ -9,44 +9,42 @@ The WhatsApp CLI lives at `src/whatsapp/cli.ts`. Run commands with:
 bun run src/whatsapp/cli.ts <command> [args...]
 ```
 
-## First-time Connection (Pairing Code — Default)
+## First-time Connection (QR Code — Recommended)
 
 When the user asks to connect WhatsApp:
 
-1. Ask the user for their phone number (with country code, e.g. +393343502266)
-2. Run: `bun run src/whatsapp/cli.ts connect "+393343502266"`
-3. This returns an 8-character pairing code (e.g. `ABCD-EFGH`)
-4. **Send the pairing code to the user on Telegram** and tell them:
-   - Open WhatsApp → Settings → Linked Devices → Link a Device
-   - Tap "Link with phone number instead"
-   - Enter the code
-5. The script waits up to 120 seconds for pairing
-6. Once paired, the session persists — no need to pair again on restart
-
-This is the preferred method because it works entirely on the phone — no second screen needed!
-
-## Alternative: QR Code Connection
-
-If the user explicitly asks for QR code login (e.g. they have a second device):
-
 1. Run: `bun run src/whatsapp/cli.ts connect-qr`
 2. This saves a QR code image at `/home/rachel/shared/whatsapp-qr.png`
-3. **Send this QR image to the user on Telegram** so they can scan it
-4. Tell the user: "Open WhatsApp → Settings → Linked Devices → Link a Device → scan this QR code"
+3. **Send this QR image to the user on Telegram** (it's in the shared folder)
+4. Tell the user: "Open WhatsApp → Settings → Linked Devices → Link a Device → scan this QR"
+5. The script waits up to 120 seconds for the scan
+6. Once linked, the session persists — no need to scan again unless it expires (~14 days of inactivity)
+
+The QR method is more reliable. The session is created with `syncFullHistory: true`, so push names (WhatsApp display names) get synced and persisted to disk automatically.
+
+## Alternative: Pairing Code Connection
+
+If the user prefers not to use a second screen:
+
+1. Ask for their phone number (with country code, e.g. +393343502266)
+2. Run: `bun run src/whatsapp/cli.ts connect "+393343502266"`
+3. Send the 8-character pairing code to the user on Telegram
+4. Tell them: WhatsApp → Settings → Linked Devices → Link a Device → "Link with phone number instead" → enter the code
+5. Waits up to 120 seconds for pairing
 
 ## Available Commands
 
-### Connect via pairing code (default)
-```bash
-bun run src/whatsapp/cli.ts connect "+393343502266"
-```
-Returns a pairing code to give to the user. Phone number must include country code.
-
-### Connect via QR code (alternative)
+### Connect via QR code (recommended)
 ```bash
 bun run src/whatsapp/cli.ts connect-qr
 ```
 Saves QR image to `/home/rachel/shared/whatsapp-qr.png`. Send it to the user on Telegram.
+
+### Connect via pairing code
+```bash
+bun run src/whatsapp/cli.ts connect "+393343502266"
+```
+Returns a pairing code. Phone number must include country code.
 
 ### Check status
 ```bash
@@ -60,21 +58,25 @@ bun run src/whatsapp/cli.ts groups
 ```
 Shows all groups with member count and JID.
 
-### Export group contacts (KILLER FEATURE)
+### Export group contacts (KILLER FEATURE for networkers)
 ```bash
 bun run src/whatsapp/cli.ts contacts "Group Name"
 ```
-- Exports all members as CSV (name, phone, admin status)
+- Exports all members as CSV (name, phone number, admin status)
+- Names are WhatsApp push names (display names users set for themselves)
+- Phone numbers are real numbers (not WhatsApp internal LIDs)
 - CSV saved to `/home/rachel/shared/whatsapp-contacts-<group>.csv`
 - **Send the CSV file to the user on Telegram**
 - Supports fuzzy name matching — partial group name works
+- First run after connecting takes ~15s to sync contact names
 
 ### Send a message
 ```bash
-bun run src/whatsapp/cli.ts send "+393343502266" "Hey, how are you?"
-bun run src/whatsapp/cli.ts send "Marco" "Hi Marco!"
+bun run src/whatsapp/cli.ts send "Clara" "Ciao! Come stai?"
+bun run src/whatsapp/cli.ts send "+393343502266" "Hey!"
 ```
-The `<to>` field accepts: phone number (with country code), contact name, or WhatsApp JID.
+The `<to>` field accepts: contact name, phone number (with country code), or WhatsApp JID.
+Name resolution handles LID→phone translation automatically.
 
 ### Send a file
 ```bash
@@ -98,25 +100,27 @@ Finds contacts matching a name or phone number.
 ```bash
 bun run src/whatsapp/cli.ts disconnect
 ```
-Logs out and clears the session. User will need to scan QR again.
+Logs out and clears the session. User will need to link again.
 
-## Important Notes
+## Technical Notes
 
-- Session auth is stored at `~/shared/rachel-memory/whatsapp-auth/` — persists across restarts
-- Contact names sync when connecting — first few seconds may only show phone numbers
-- The `messages` command only shows messages received while the bridge was connected (not full history)
-- Group contact export works immediately — no history needed
-- When sending files to the user on Telegram, use the file path directly (the shared folder is accessible)
+- Session auth stored at `~/shared/rachel-memory/whatsapp-auth/` — persists across restarts
+- Contact names (push names) are persisted to `contact-names.json` in the auth dir — survive reconnects
+- Names sync on first link via `contacts.upsert` and `messaging-history.set` events
+- WhatsApp uses LID (Linked ID) format internally; the bridge resolves LIDs to real phone numbers automatically
+- Uses `Browsers.macOS("Google Chrome")` identity — required for pairing code compatibility
+- On disconnect (including 515 stream restart after linking), auto-reconnects using fresh `startSock()` pattern
+- The `messages` command only shows messages received while connected (not full history)
 - Phone numbers should include country code (e.g., 393343502266 for Italian numbers)
 
 ## Common User Requests → Commands
 
 | User says | What to do |
 |-----------|------------|
-| "Connect my WhatsApp" | Ask for phone number, run `connect "<phone>"`, send pairing code |
-| "Connect WhatsApp with QR" | Run `connect-qr`, send QR image |
+| "Connect my WhatsApp" | Run `connect-qr`, send QR image |
+| "Connect WhatsApp with code" | Ask for phone, run `connect "<phone>"`, send code |
 | "Show my WhatsApp groups" | Run `groups` |
-| "Export contacts from [group]" | Run `contacts "[group]"`, send CSV |
+| "Export contacts from [group]" | Run `contacts "[group]"`, send CSV file |
 | "Send [message] to [person]" | Run `send "[person]" "[message]"` |
 | "Send this file to [person] on WhatsApp" | Run `send-file "[person]" "/path/to/file"` |
 | "What did [person] say?" | Run `messages "[person]"` |

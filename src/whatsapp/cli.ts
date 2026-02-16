@@ -149,7 +149,7 @@ async function main() {
         process.exit(1);
       }
 
-      await ensureConnected();
+      await ensureConnected(true);
       const { groupName: name, contacts } = await getGroupContacts(groupName);
       const csv = contactsToCsv(contacts);
 
@@ -268,7 +268,7 @@ Commands:
   process.exit(0);
 }
 
-async function ensureConnected(): Promise<void> {
+async function ensureConnected(waitForSync = false): Promise<void> {
   if (!isConnected()) {
     // Try to restore from saved session (no interactive auth)
     const result = await connect("qr");
@@ -281,7 +281,13 @@ async function ensureConnected(): Promise<void> {
       }
     }
     setupMessageListener();
-    await new Promise((r) => setTimeout(r, 3000));
+    // Wait for contact sync (push names arrive via contacts.upsert)
+    if (waitForSync) {
+      console.log("Waiting for contact sync...");
+      await new Promise((r) => setTimeout(r, 15000));
+    } else {
+      await new Promise((r) => setTimeout(r, 3000));
+    }
   }
 }
 
