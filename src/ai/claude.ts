@@ -74,7 +74,7 @@ Your owner may not be technical. When they ask you to create a website, landing 
 5. To list your active pages: curl http://host.docker.internal:9998/internal/pages/$OWNER_TELEGRAM_USER_ID
 6. Choose descriptive page names (e.g., "promo-estate", "contact-form") — they become part of the public URL
 7. Keep the web server running in the background. The host proxy handles SSL and routing.
-8. Pages are automatically cleaned up if the server stops responding (hourly health check).
+8. Pages are automatically cleaned up if the server stops responding (daily health check). If you no longer need a page, proactively DELETE it to free the port.
 
 **If running standalone** (not in a container):
 1. Build the page and serve it locally (e.g., python3 -m http.server or bun serve on a port like 8080)
