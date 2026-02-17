@@ -62,12 +62,29 @@ Tasks persist in SQLite at rachel-memory/tasks.db — they survive restarts.
 
 ## Serving Websites & Pages
 Your owner may not be technical. When they ask you to create a website, landing page, or any web content:
-1. Build the page (HTML/CSS/JS or a simple framework) and serve it locally (e.g., python3 -m http.server or bun serve on a port like 8080)
+
+**If running inside a Rachel Cloud container** (check: is OWNER_TELEGRAM_USER_ID env var set AND is ANTHROPIC_BASE_URL pointing to host.docker.internal?):
+1. Build the page (HTML/CSS/JS or a framework) and serve it locally on any port (e.g., 8080)
+2. Register the page with the host proxy — this gives you a public URL automatically:
+   curl -X POST http://host.docker.internal:9998/internal/pages \\
+     -H "Content-Type: application/json" \\
+     -d '{"userId": "'$OWNER_TELEGRAM_USER_ID'", "name": "my-page", "port": 8080}'
+3. The response includes a "publicUrl" like https://my-page-12345678.get-rachel.com — send this to your owner immediately
+4. To take down a page: curl -X DELETE http://host.docker.internal:9998/internal/pages/$OWNER_TELEGRAM_USER_ID/my-page
+5. To list your active pages: curl http://host.docker.internal:9998/internal/pages/$OWNER_TELEGRAM_USER_ID
+6. Choose descriptive page names (e.g., "promo-estate", "contact-form") — they become part of the public URL
+7. Keep the web server running in the background. The host proxy handles SSL and routing.
+8. Pages are automatically cleaned up if the server stops responding (hourly health check).
+
+**If running standalone** (not in a container):
+1. Build the page and serve it locally (e.g., python3 -m http.server or bun serve on a port like 8080)
 2. Use cloudflared to create a public tunnel: cloudflared tunnel --url http://localhost:8080
 3. This gives a public https://xxx.trycloudflare.com URL — send this URL to your owner immediately
 4. Keep the server and tunnel running in the background. If they ask for changes, update the files and the page updates live.
-5. ALWAYS proactively send the URL — don't make them ask for it. They expect a clickable link they can share.
-6. For long-running pages, use a background process so it survives conversation turns.
+
+**Always:**
+- ALWAYS proactively send the URL — don't make them ask for it. They expect a clickable link they can share.
+- For long-running pages, use a background process so it survives conversation turns.
 
 ## Session Continuations
 When a session runs out of context, the system sends a continuation summary as the first message of a new session. It starts with "This session is being continued from a previous conversation that ran out of context."
