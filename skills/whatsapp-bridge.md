@@ -15,7 +15,7 @@ When the user asks to connect WhatsApp:
 
 1. Run: `bun run src/whatsapp/cli.ts connect-qr`
 2. This saves a QR code image at `$SHARED_FOLDER_PATH/whatsapp-qr.png`
-3. **Send this QR image to the user on Telegram** (it's in the shared folder)
+3. **Send the QR image to the user on Telegram**: `bun run src/telegram/send-file.ts $SHARED_FOLDER_PATH/whatsapp-qr.png "Scan this QR code: Open WhatsApp → Settings → Linked Devices → Link a Device"`
 4. Tell the user: "Open WhatsApp → Settings → Linked Devices → Link a Device → scan this QR"
 5. The script waits up to 120 seconds for the scan
 6. Once linked, the session persists — no need to scan again unless it expires (~14 days of inactivity)
@@ -66,7 +66,7 @@ bun run src/whatsapp/cli.ts contacts "Group Name"
 - Names are WhatsApp push names (display names users set for themselves)
 - Phone numbers are real numbers (not WhatsApp internal LIDs)
 - CSV saved to `$SHARED_FOLDER_PATH/whatsapp-contacts-<group>.csv`
-- **Send the CSV file to the user on Telegram**
+- **Send the CSV file to the user on Telegram**: `bun run src/telegram/send-file.ts $SHARED_FOLDER_PATH/whatsapp-contacts-<group>.csv "Contacts from <group>"`
 - Supports fuzzy name matching — partial group name works
 - First run after connecting takes ~15s to sync contact names
 
