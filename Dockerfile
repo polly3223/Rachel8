@@ -2,7 +2,7 @@
 # Rachel8 — Personal AI Agent Docker Image
 # ==============================================================================
 # Multi-stage build for production deployment.
-# Expected image size: ~280MB (Alpine-based)
+# Uses Debian-based image (not Alpine) because Claude Code requires glibc.
 #
 # IMPORTANT: Secrets (TELEGRAM_BOT_TOKEN, API keys, etc.) must be passed via
 # runtime env vars (-e flags), NOT baked into this image.
@@ -14,7 +14,7 @@
 # ==============================================================================
 # STAGE 1: Builder — install dependencies
 # ==============================================================================
-FROM oven/bun:1.1.10-alpine AS builder
+FROM oven/bun:1.3.9 AS builder
 
 WORKDIR /build
 
@@ -30,25 +30,33 @@ COPY skills ./skills
 COPY tsconfig.json .
 
 # ==============================================================================
-# STAGE 2: Runtime — minimal production image
+# STAGE 2: Runtime — Debian-based production image
 # ==============================================================================
-FROM oven/bun:1.1.10-alpine AS runtime
+FROM oven/bun:1.3.9 AS runtime
 
-# Install runtime system dependencies (single RUN layer to minimize image size)
+# Install runtime system dependencies
 # - git: Required by Claude Agent SDK for tool execution
 # - ffmpeg: Media processing (audio/video)
-# - python3 + py3-pillow: Image processing (Alpine package, NOT pip — saves 180MB)
-RUN apk add --no-cache \
+# - python3 + python3-pil: Image processing
+# - curl: Required for Claude Code installation
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ffmpeg \
     python3 \
-    py3-pillow \
-  && rm -rf /var/cache/apk/*
+    python3-pil \
+    curl \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI (required by the Claude Agent SDK)
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+  && cp /root/.local/bin/claude /usr/local/bin/claude \
+  && chmod +x /usr/local/bin/claude \
+  && rm -rf /root/.claude/downloads
 
 # Create non-root user and data directory
-# oven/bun:alpine already has group 1000 (bun), so we use a different GID
-RUN addgroup -g 1001 rachel && \
-    adduser -D -u 1001 -G rachel rachel && \
+RUN groupadd -g 1001 rachel && \
+    useradd -u 1001 -g rachel -m rachel && \
     mkdir -p /data && chown rachel:rachel /data
 
 WORKDIR /app
@@ -78,9 +86,10 @@ ENV NODE_ENV=production \
     LOG_LEVEL=info
 
 # Health check — verify the Bun process is running
+# Uses /proc/1/cmdline (always available) since pgrep/ps may not be in slim images
 # start-period is 15s because Rachel8 initializes memory system + Telegram connection
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD pgrep -f "bun.*index.ts" || exit 1
+  CMD cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' | grep -q "bun" || exit 1
 
 # No EXPOSE — Rachel8 uses outbound Telegram polling, no inbound ports needed
 
