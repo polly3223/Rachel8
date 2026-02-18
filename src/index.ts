@@ -28,7 +28,7 @@ startTaskPoller();
 function shutdown(): void {
   setShuttingDown();
   shutdownTasks();
-  bot.stop();
+  if (!isWebhookMode) bot.stop();
 }
 
 process.once("SIGTERM", () => shutdown());
@@ -61,8 +61,63 @@ if (shouldSendStartup) {
   }
 }
 
-await bot.start({
-  onStart: () => {
-    logger.info("Rachel8 is running. Listening for messages...");
-  },
-});
+// ---------------------------------------------------------------------------
+// Startup mode: webhook (Rachel Cloud containers) vs polling (standalone)
+//
+// In Rachel Cloud, RACHEL_CLOUD=true is set. The central router at
+// get-rachel.com/api/telegram/webhook receives ALL updates from Telegram
+// and forwards them to containers via POST http://rachel-user-{id}:8443/webhook.
+//
+// Standalone instances (like the host Rachel) use traditional long polling.
+// ---------------------------------------------------------------------------
+
+const isWebhookMode = Bun.env.RACHEL_CLOUD === "true";
+
+if (isWebhookMode) {
+  const WEBHOOK_PORT = Number(Bun.env.WEBHOOK_PORT || "8443");
+
+  // Initialize grammY bot internals without polling
+  await bot.init();
+
+  const server = Bun.serve({
+    port: WEBHOOK_PORT,
+    async fetch(req: Request) {
+      const url = new URL(req.url);
+
+      // Health check endpoint
+      if (req.method === "GET" && url.pathname === "/health") {
+        return new Response(JSON.stringify({ status: "ok" }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Webhook endpoint — receives raw Telegram updates from the router
+      if (req.method === "POST" && url.pathname === "/webhook") {
+        try {
+          const update = await req.json();
+          await bot.handleUpdate(update);
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err) {
+          logger.error("Webhook handler error", { error: errorMessage(err) });
+          return new Response(JSON.stringify({ ok: false }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      return new Response("Not found", { status: 404 });
+    },
+  });
+
+  logger.info(`Rachel8 webhook server listening on port ${WEBHOOK_PORT}`);
+} else {
+  // Standalone mode — use long polling (only 1 instance per bot token!)
+  await bot.start({
+    onStart: () => {
+      logger.info("Rachel8 is running (polling mode). Listening for messages...");
+    },
+  });
+}

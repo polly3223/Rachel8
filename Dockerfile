@@ -98,12 +98,12 @@ ENV NODE_ENV=production \
     SHARED_FOLDER_PATH=/data \
     LOG_LEVEL=info
 
-# Health check — verify the Bun process is running
-# Uses /proc/1/cmdline (always available) since pgrep/ps may not be in slim images
-# start-period is 15s because Rachel8 initializes memory system + Telegram connection
+# Health check — in webhook mode, hit /health endpoint; in polling mode, check process
+# start-period is 15s because Rachel8 initializes memory system + Telegram/Claude connection
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' | grep -q "bun" || exit 1
+  CMD curl -sf http://localhost:8443/health >/dev/null 2>&1 || cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' | grep -q "bun" || exit 1
 
-# No EXPOSE — Rachel8 uses outbound Telegram polling, no inbound ports needed
+# Webhook port — used when RACHEL_CLOUD=true (container receives updates from router)
+EXPOSE 8443
 
 CMD ["/app/entrypoint.sh"]
