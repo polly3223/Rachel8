@@ -105,7 +105,13 @@ When a session runs out of context, the system sends a continuation summary as t
   6. On startup, you'll automatically send "I'm back online!" to confirm the restart worked
 - This workflow matters because the Rachel repo is public — any user can update their own instance the same way.`;
 
-const SESSIONS_FILE = `${import.meta.dir}/../../.sessions.json`;
+// Store sessions in the shared folder (writable volume in containers) with fallback to project root
+const SESSIONS_FILE = Bun.env.SHARED_FOLDER_PATH
+  ? `${Bun.env.SHARED_FOLDER_PATH}/.sessions.json`
+  : `${import.meta.dir}/../../.sessions.json`;
+
+// Model can be overridden via env var (e.g. containers using Z.ai proxy with different models)
+const MODEL = Bun.env.CLAUDE_MODEL || "claude-opus-4-6";
 
 const sessions = new Map<number, string>();
 
@@ -140,7 +146,7 @@ async function runQuery(
     prompt: userMessage,
     options: {
       systemPrompt,
-      model: "claude-opus-4-6",
+      model: MODEL,
       maxTurns: Infinity,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
@@ -187,6 +193,10 @@ export async function generateResponse(
     return result;
   } catch (error) {
     const msg = errorMessage(error).toLowerCase();
+    const isSessionGone =
+      msg.includes("no conversation found") ||
+      msg.includes("session not found") ||
+      msg.includes("session id");
     const isContextOverflow =
       msg.includes("prompt is too long") ||
       msg.includes("too many tokens") ||
@@ -194,7 +204,7 @@ export async function generateResponse(
       msg.includes("max_tokens") ||
       msg.includes("request too large");
 
-    if (isContextOverflow && existingSessionId) {
+    if ((isContextOverflow || isSessionGone) && existingSessionId) {
       logger.warn(
         `Session ${existingSessionId} context overflow for chat ${chatId}, starting fresh session`,
       );

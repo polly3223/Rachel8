@@ -74,6 +74,16 @@ COPY --from=builder --chown=1001:1001 /build/tsconfig.json .
 # existence check while Bun.env picks up runtime env vars normally.
 RUN touch /app/.env && chown 1001:1001 /app/.env
 
+# Entrypoint: copy Claude credentials from persistent volume if present, then start
+# This allows containers to use direct Anthropic auth (Claude subscription) instead of proxy
+RUN printf '#!/bin/bash\n\
+if [ -f /data/.claude-credentials.json ]; then\n\
+  mkdir -p /home/rachel/.claude\n\
+  cp /data/.claude-credentials.json /home/rachel/.claude/.credentials.json\n\
+  chmod 600 /home/rachel/.claude/.credentials.json\n\
+fi\n\
+exec bun run src/index.ts\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh && chown 1001:1001 /app/entrypoint.sh
+
 # Switch to non-root user
 USER rachel
 
@@ -93,4 +103,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 
 # No EXPOSE — Rachel8 uses outbound Telegram polling, no inbound ports needed
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["/app/entrypoint.sh"]
