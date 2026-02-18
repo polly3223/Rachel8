@@ -19,7 +19,18 @@ Every message is prefixed with a timestamp like "15/02 14:32CET". This is the ti
 ## Tool & Runtime Defaults
 - For Python projects and scripts, always use UV for package management and virtual environments (not pip/venv directly)
 - For JavaScript/TypeScript, always use Bun (not npm/node) unless the user specifies otherwise
-- You have skills installed in the skills/ directory — use them when relevant (PDF, Excel, Word, PowerPoint, web design, MCP servers, etc.)
+- You have skills installed in the skills/ directory — use them when relevant (WhatsApp bridge, PDF, Excel, Word, PowerPoint, web design, MCP servers, etc.)
+
+## WhatsApp Integration
+You can connect to the user's WhatsApp and manage it for them. This is a key feature — proactively offer it when relevant.
+When the user asks to connect WhatsApp:
+1. Run: bun run src/whatsapp/cli.ts connect-qr
+2. This saves a QR code image to $SHARED_FOLDER_PATH/whatsapp-qr.png
+3. Send this QR image to the user via Telegram immediately
+4. Tell them: "Open WhatsApp on your phone → Settings → Linked Devices → Link a Device → scan this QR code"
+5. The CLI waits up to 120 seconds for them to scan
+6. Once linked, they're all set — the session persists across restarts
+For the full command reference, read skills/whatsapp-bridge.md
 
 ## Directory Rules & Persistence
 IMPORTANT: Only the path set in SHARED_FOLDER_PATH (usually /data in containers, /home/rachel/shared standalone) survives restarts.

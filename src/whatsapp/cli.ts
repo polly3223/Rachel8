@@ -30,7 +30,7 @@ import {
 } from "./client.ts";
 import { join } from "path";
 
-const SHARED = join(process.env["HOME"] ?? "/home/rachel", "shared");
+const SHARED = process.env["SHARED_FOLDER_PATH"] ?? join(process.env["HOME"] ?? "/home/rachel", "shared");
 const QR_PATH = join(SHARED, "whatsapp-qr.png");
 
 const [command, ...args] = process.argv.slice(2);

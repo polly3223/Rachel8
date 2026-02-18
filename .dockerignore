@@ -20,9 +20,10 @@ tmp/
 .planning/
 clara-page/
 
-# Documentation (not needed at runtime)
+# Documentation (not needed at runtime — but keep skills/ .md files)
 *.md
 !README.md
+!skills/**/*.md
 
 # Test files
 test/

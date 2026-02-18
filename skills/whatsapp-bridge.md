@@ -14,7 +14,7 @@ bun run src/whatsapp/cli.ts <command> [args...]
 When the user asks to connect WhatsApp:
 
 1. Run: `bun run src/whatsapp/cli.ts connect-qr`
-2. This saves a QR code image at `/home/rachel/shared/whatsapp-qr.png`
+2. This saves a QR code image at `$SHARED_FOLDER_PATH/whatsapp-qr.png`
 3. **Send this QR image to the user on Telegram** (it's in the shared folder)
 4. Tell the user: "Open WhatsApp → Settings → Linked Devices → Link a Device → scan this QR"
 5. The script waits up to 120 seconds for the scan
@@ -38,7 +38,7 @@ If the user prefers not to use a second screen:
 ```bash
 bun run src/whatsapp/cli.ts connect-qr
 ```
-Saves QR image to `/home/rachel/shared/whatsapp-qr.png`. Send it to the user on Telegram.
+Saves QR image to `$SHARED_FOLDER_PATH/whatsapp-qr.png`. Send it to the user on Telegram.
 
 ### Connect via pairing code
 ```bash
@@ -65,7 +65,7 @@ bun run src/whatsapp/cli.ts contacts "Group Name"
 - Exports all members as CSV (name, phone number, admin status)
 - Names are WhatsApp push names (display names users set for themselves)
 - Phone numbers are real numbers (not WhatsApp internal LIDs)
-- CSV saved to `/home/rachel/shared/whatsapp-contacts-<group>.csv`
+- CSV saved to `$SHARED_FOLDER_PATH/whatsapp-contacts-<group>.csv`
 - **Send the CSV file to the user on Telegram**
 - Supports fuzzy name matching — partial group name works
 - First run after connecting takes ~15s to sync contact names
@@ -104,7 +104,7 @@ Logs out and clears the session. User will need to link again.
 
 ## Technical Notes
 
-- Session auth stored at `~/shared/rachel-memory/whatsapp-auth/` — persists across restarts
+- Session auth stored at `$SHARED_FOLDER_PATH/rachel-memory/whatsapp-auth/` — persists across restarts
 - Contact names (push names) are persisted to `contact-names.json` in the auth dir — survive reconnects
 - Names sync on first link via `contacts.upsert` and `messaging-history.set` events
 - WhatsApp uses LID (Linked ID) format internally; the bridge resolves LIDs to real phone numbers automatically

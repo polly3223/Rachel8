@@ -23,12 +23,8 @@ import { logger } from "../lib/logger.ts";
 // Constants
 // ---------------------------------------------------------------------------
 
-const AUTH_DIR = join(
-  process.env["HOME"] ?? "/home/rachel",
-  "shared",
-  "rachel-memory",
-  "whatsapp-auth"
-);
+const SHARED = process.env["SHARED_FOLDER_PATH"] ?? join(process.env["HOME"] ?? "/home/rachel", "shared");
+const AUTH_DIR = join(SHARED, "rachel-memory", "whatsapp-auth");
 
 const BROWSER = Browsers.macOS("Google Chrome");
 const CONTACTS_FILE = join(AUTH_DIR, "contact-names.json");
