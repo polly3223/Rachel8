@@ -8,7 +8,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.38",
+    "@anthropic-ai/claude-agent-sdk": "0.2.38",
     "@clack/prompts": "^1.0.0",
     "@grammyjs/auto-chat-action": "^0.1.1",
     "@types/qrcode": "^1.5.6",
