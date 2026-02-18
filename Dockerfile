@@ -74,13 +74,16 @@ COPY --from=builder --chown=1001:1001 /build/tsconfig.json .
 # existence check while Bun.env picks up runtime env vars normally.
 RUN touch /app/.env && chown 1001:1001 /app/.env
 
-# Entrypoint: copy Claude credentials from persistent volume if present, then start
-# This allows containers to use direct Anthropic auth (Claude subscription) instead of proxy
+# Entrypoint: symlink ~/.claude to persistent volume so sessions + credentials survive restarts
 RUN printf '#!/bin/bash\n\
+# Persist all Claude CLI data (sessions, credentials, projects) on the volume\n\
+mkdir -p /data/.claude\n\
+rm -rf /home/rachel/.claude\n\
+ln -sf /data/.claude /home/rachel/.claude\n\
+# Copy credentials into the persistent dir if provided separately\n\
 if [ -f /data/.claude-credentials.json ]; then\n\
-  mkdir -p /home/rachel/.claude\n\
-  cp /data/.claude-credentials.json /home/rachel/.claude/.credentials.json\n\
-  chmod 600 /home/rachel/.claude/.credentials.json\n\
+  cp /data/.claude-credentials.json /data/.claude/.credentials.json\n\
+  chmod 600 /data/.claude/.credentials.json\n\
 fi\n\
 exec bun run src/index.ts\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh && chown 1001:1001 /app/entrypoint.sh
 
