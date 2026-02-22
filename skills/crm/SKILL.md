@@ -7,6 +7,10 @@ description: Conversational CRM for managing contacts, leads, relationships, and
 
 Manage contacts, relationships, and follow-ups through natural conversation. Data lives in markdown files — one directory per contact under `$SHARED_FOLDER_PATH/rachel-memory/crm/`.
 
+## Dependencies
+
+Scripts use `gray-matter` for frontmatter parsing (already installed in the project). Use Bun native APIs (`Bun.file()`, `Bun.write()`, `readdir` from `node:fs/promises`) for all file I/O.
+
 ## Directory Structure
 
 ```
@@ -23,35 +27,38 @@ rachel-memory/crm/
 - Each contact is a **directory** named as a slug: lowercase, hyphens, no spaces (e.g. `marco-rossi`)
 - `contact.md` is always the main file
 - Any other files in the dir are associated with that contact (contracts, images, notes, etc.)
-- If two people share a name, append a number: `marco-rossi-2` (but FIRST verify they are not the same person)
+- If two people share a name, append a number: `marco-rossi-2` — but FIRST verify they are not the same person by checking phone, email, company
 
 ## Contact File Format
 
-`contact.md` uses YAML frontmatter for structured metadata and markdown body for notes/interactions:
+`contact.md` uses YAML frontmatter + markdown body:
 
 ```markdown
 ---
 name: Marco Rossi
-phone: "+39 342 881 2201"
-email: marco.rossi@acme.it
+phone:
+  - "+393428812201"
+  - "+393311234567"
+email:
+  - marco.rossi@acme.it
 company: Acme Consulting
 role: Sales Director
 location: Turin, Italy
 tags: [lead, networker, real-estate]
 lists: [hot-leads, networkers-turin]
-source: "WhatsApp group - Imprenditori Torino"
+source: WhatsApp group - Imprenditori Torino
 met: 2026-02-15
 last_contact: 2026-02-20
 next_followup: 2026-02-27
 relationship: warm
 linkedin: https://linkedin.com/in/marcorossi
-instagram: "@marcorossi"
+instagram: marcorossi
+whatsapp: "+393428812201"
 ---
 
 ## Notes
 - Met at Turin networking event
 - Interested in AI for his sales team
-- Budget decision in Q2
 
 ## Interactions
 ### 2026-02-20
@@ -61,156 +68,123 @@ Called, discussed Rachel demo. Wants to see landing page feature.
 First contact at event. Exchanged numbers.
 ```
 
-### Frontmatter Fields
+### Field Types — Always Array vs Always Single
 
-Required: `name`
-Common: `phone`, `email`, `company`, `role`, `location`, `tags`, `lists`, `source`, `met`, `last_contact`, `next_followup`, `relationship`
-Optional: `linkedin`, `instagram`, `twitter`, `website`, any other field as needed
+Fields that CAN have multiple values are ALWAYS stored as arrays, even if there's currently just one:
+- `phone: ["+393428812201"]` — always array
+- `email: ["marco@acme.it"]` — always array
+- `tags: [lead]` — always array
+- `lists: [hot-leads]` — always array
 
-- `tags`: array — categorize the contact (lead, client, partner, friend, investor, vendor, etc.)
-- `lists`: array — named groups for filtering (hot-leads, event-feb-2026, real-estate-milan, etc.)
-- `relationship`: one of `cold`, `warm`, `hot`, `client`, `friend`, `dormant`
-- `last_contact`: ISO date of most recent interaction
-- `next_followup`: ISO date — when to follow up next
-- `met`: ISO date — when you first met this person
+Fields that are inherently singular are always strings:
+- `name`, `company`, `role`, `location`, `source`, `relationship` — always string
+- `met`, `last_contact`, `next_followup` — always string (ISO date)
+- `linkedin`, `instagram`, `twitter`, `website`, `whatsapp` — always string
+
+### Phone Number Normalization
+
+ALL phone numbers must be stored in E.164-like format: digits only with leading `+`, no spaces, no dashes, no parentheses.
+
+Normalization: strip everything except digits and leading `+`. If no `+`, assume Italian (+39) if it starts with 3 and has 10 digits.
+
+Examples:
+- `+39 342 881 2201` → `"+393428812201"`
+- `342 881 2201` → `"+393428812201"` (Italian assumed)
+- `0039 342 881 2201` → `"+393428812201"`
+- `(342) 881-2201` → `"+393428812201"`
+
+### Email Normalization
+
+Always lowercase, trim whitespace. That's it.
+
+### Deduplication Strategy
+
+Before adding a contact, ALWAYS check for duplicates by:
+1. Normalized phone number match (check every phone in the array)
+2. Normalized email match
+3. Slug/name similarity (fuzzy — same slugified name)
+
+If a match is found: **merge into the existing contact** rather than creating a new one. Add new phone numbers/emails to the arrays, update fields that were empty, append new interaction notes. Never silently drop data.
+
+When importing from WhatsApp groups: a contact may only have a phone number. Normalize it and check against all existing contacts' phone arrays. If found → update that contact. If not → create new.
 
 ## Working With Contacts
 
-### Reading & Querying
+### Scripting Rules
 
-For simple lookups (1-2 contacts), read the file directly.
-
-For queries across multiple contacts (filtering, searching, reporting), write and run a Bun script. Do NOT manually scan every file — always use programmatic access.
-
-See `examples/search.ts` in the skill directory for reference patterns. Adapt and extend as needed — write new scripts for any query the user needs.
-
-Common patterns:
-- Find contacts by tag, list, location, company, role
-- Find overdue follow-ups (next_followup < today)
-- Find dormant relationships (last_contact older than N days)
-- Count contacts by tag or list
-- Export contacts as CSV/Excel
+1. Use `gray-matter` for all frontmatter parsing/serialization
+2. Use `Bun.file().text()` for reading, `Bun.write()` for writing
+3. Use `readdir` from `node:fs/promises` with `withFileTypes` for listing
+4. For multi-contact queries, ALWAYS read files in parallel (`Promise.all`)
+5. Write scripts on the fly for whatever the user needs — don't be limited to the examples
+6. The examples/ dir has starter scripts — adapt, extend, or write new ones
 
 ### Adding Contacts
 
-1. Create dir: `$SHARED_FOLDER_PATH/rachel-memory/crm/{slug}/`
-2. Create `contact.md` with frontmatter + initial notes
-3. Set `met` to today if not specified
-4. Set `last_contact` to today
-5. If the user provides extra files (photos, docs), save them in the same dir
-
-Before creating: search existing contacts to avoid duplicates. If a similar name exists, ask the user to confirm it's a different person.
+1. Normalize all phone numbers and emails
+2. Check for duplicates (phone, email, name)
+3. If duplicate found: merge (add new data, don't overwrite existing)
+4. If new: create dir + contact.md with proper array fields
+5. Set `met` and `last_contact` to today if not specified
 
 ### Updating Contacts
 
-- To add an interaction: append a new dated section under `## Interactions`
-- To update metadata: modify the frontmatter fields
+- To add an interaction: append a dated section under `## Interactions`
+- To update metadata: re-parse with gray-matter, modify data, re-serialize with gray-matter
 - Always update `last_contact` when logging a new interaction
-- When setting a follow-up: update `next_followup` in frontmatter AND schedule an agent task (see below)
+- When setting a follow-up: update `next_followup` AND schedule an agent task
 
-### Deleting Contacts
+### Bulk Import
 
-Remove the entire contact directory. Ask for confirmation first.
+For WhatsApp group imports, CSV imports, or any bulk operation:
+1. Parse all entries
+2. Normalize all phone/email values
+3. Load ALL existing contacts into memory (parallel reads)
+4. For each entry: check duplicates → merge or create
+5. Report: "Created X new, merged Y existing, Z total"
 
 ## Follow-ups & Reminders
 
-CRITICAL: Never use "reminder" type tasks. Always use "agent" type tasks for follow-ups.
+CRITICAL: Never use "reminder" type tasks. Always use "agent" type tasks.
 
-When the user says "follow up with Marco in a week" or "remind me to call Sarah on Monday":
-
-1. Update `next_followup` in the contact's frontmatter
-2. Schedule an **agent task** with a prompt that references the contact file path:
+When scheduling a follow-up:
+1. Update `next_followup` in frontmatter
+2. Schedule an **agent task** referencing the contact file path:
 
 ```bash
 sqlite3 $SHARED_FOLDER_PATH/rachel9/data.db "INSERT INTO tasks (name, type, data, next_run) VALUES (
   'followup-marco-rossi',
   'agent',
-  '{\"prompt\":\"Follow-up due for Marco Rossi. Read $SHARED_FOLDER_PATH/rachel-memory/crm/marco-rossi/contact.md for full context. Review the latest interactions, understand what was discussed and what the next step is. Send the user: 1) a brief reminder of who Marco is and what is pending, 2) a suggested action, 3) a draft message if appropriate. After sending, update last_contact to today and ask the user if they want to set a new follow-up.\"}',
+  '{\"prompt\":\"Follow-up due for Marco Rossi. Read $SHARED_FOLDER_PATH/rachel-memory/crm/marco-rossi/contact.md for full context. Review latest interactions, send the user: 1) who Marco is and what is pending, 2) suggested action, 3) draft message if appropriate. Update last_contact and ask about next follow-up.\"}',
   $(date -d '2026-02-27 09:00 UTC' +%s)000
 );"
 ```
 
-This way, when the task fires, Rachel wakes up with full tool access, reads the contact file, and sends an intelligent briefing — not just a dumb text notification.
-
-For recurring follow-up sequences (e.g. "check in every 2 weeks"):
-- Use a cron-based agent task
-- The prompt should include: read the contact, check if there's been recent interaction, if not send a nudge
-
-## Scripting Patterns
-
-The examples/ dir contains starter scripts. Use them as reference, adapt freely, or write new ones for the user's specific needs. Scripts run with `bun run`.
-
-Key pattern for parsing frontmatter in Bun/TypeScript:
-
-```typescript
-import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
-
-const CRM_DIR = `${process.env.SHARED_FOLDER_PATH ?? "/data"}/rachel-memory/crm`;
-
-interface Contact {
-  slug: string;
-  name: string;
-  [key: string]: unknown;
-}
-
-function parseContact(slug: string): Contact | null {
-  const file = join(CRM_DIR, slug, "contact.md");
-  if (!existsSync(file)) return null;
-  const raw = readFileSync(file, "utf-8");
-  const m = raw.match(/^---\n([\s\S]*?)\n---/);
-  if (!m?.[1]) return null;
-  const fields: Record<string, unknown> = { slug };
-  for (const line of m[1].split("\n")) {
-    const kv = line.match(/^(\w[\w_]*)\s*:\s*(.+)/);
-    if (!kv) continue;
-    let val: unknown = kv[2].trim().replace(/^["']|["']$/g, "");
-    if (typeof val === "string" && val.startsWith("["))
-      val = val.replace(/[\[\]]/g, "").split(",").map((s: string) => s.trim());
-    fields[kv[1]] = val;
-  }
-  return fields as Contact;
-}
-
-function allContacts(): Contact[] {
-  if (!existsSync(CRM_DIR)) return [];
-  return readdirSync(CRM_DIR, { withFileTypes: true })
-    .filter(e => e.isDirectory() && e.name !== "_templates")
-    .map(e => parseContact(e.name))
-    .filter((c): c is Contact => c !== null);
-}
-```
-
-Use this as a building block. Write scripts that filter, sort, export, or transform contacts as needed. Delete scripts after one-time use if they're not reusable, or keep useful ones in the examples/ dir.
-
 ## Meeting Prep
 
-When the user says "I'm meeting [name] tomorrow" or "prep me for a call with [name]":
-
+When user says "I'm meeting [name] tomorrow":
 1. Read the contact file
-2. If contact enrichment data exists, include it
-3. Summarize: who they are, company, role, how you met, past interactions, what's pending
-4. Suggest talking points based on interaction history
-5. If no contact file exists, offer to create one and do web research
+2. Summarize: who, company, role, how you met, past interactions, pending items
+3. Suggest talking points
+4. If no contact exists, offer to create one and do web research
 
-## Bulk Operations
+## Example Scripts
 
-For importing contacts from WhatsApp groups, CSV files, or other sources:
+See `examples/` in the skill directory:
+- `search.ts` — filter contacts by tag, list, location, company, overdue, dormant
+- `add-contact.ts` — create/merge contacts with normalization + dedup
+- `overdue-report.ts` — find overdue follow-ups
+- `schema.ts` — introspect all frontmatter fields, their types, and sample values
 
-1. Parse the source data
-2. For each contact, check for existing duplicates by name/phone
-3. Create contact dirs and files
-4. Report: "Created X new contacts, skipped Y duplicates"
-
-When exporting: write a script that collects frontmatter fields and outputs CSV/Excel.
+All scripts use gray-matter + Bun native APIs. Use them as reference and write new scripts as needed.
 
 ## Important Rules
 
-1. Always use `$SHARED_FOLDER_PATH/rachel-memory/crm/` as the CRM root
-2. Always use agent tasks (never reminder tasks) for follow-ups
-3. Always include the contact file path in agent task prompts
-4. Always update `last_contact` when logging interactions
-5. Always check for duplicates before creating contacts
-6. For multi-contact queries, always write scripts — never manually read each file
-7. The user speaks naturally — interpret "add Marco, salesman from Milan, met yesterday" correctly
-8. When in doubt about a contact's identity (possible duplicate), ask the user
+1. Always normalize phones (E.164) and emails (lowercase) before storing or searching
+2. Always use arrays for phone, email, tags, lists — even for single values
+3. Always check for duplicates before creating contacts
+4. Always use agent tasks (never reminder) for follow-ups, with contact file path in prompt
+5. Always use gray-matter for frontmatter, Bun native APIs for file I/O
+6. Always read multiple files in parallel (Promise.all)
+7. Always update `last_contact` when logging interactions
+8. Interpret natural language: "add Marco, salesman from Milan, met yesterday" → correct fields
