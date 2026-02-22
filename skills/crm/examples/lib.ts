@@ -6,7 +6,8 @@ import matter from "gray-matter";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-export const CRM_DIR = `${process.env.SHARED_FOLDER_PATH ?? "/data"}/rachel-memory/crm`;
+export const CRM_ROOT = `${process.env.SHARED_FOLDER_PATH ?? "/data"}/rachel-memory/crm`;
+export const CONTACTS_DIR = `${CRM_ROOT}/contacts`;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +82,7 @@ export function normalizeContactData(data: Record<string, unknown>): Record<stri
 
 /** Read and parse a single contact.md. Returns null if not found. */
 export async function readContact(slug: string): Promise<Contact | null> {
-  const file = Bun.file(join(CRM_DIR, slug, "contact.md"));
+  const file = Bun.file(join(CONTACTS_DIR, slug, "contact.md"));
   if (!(await file.exists())) return null;
   const raw = await file.text();
   const { data, content } = matter(raw);
@@ -91,8 +92,8 @@ export async function readContact(slug: string): Promise<Contact | null> {
 /** Read ALL contacts in parallel. */
 export async function allContacts(): Promise<Contact[]> {
   try {
-    const entries = await readdir(CRM_DIR, { withFileTypes: true });
-    const dirs = entries.filter(e => e.isDirectory() && e.name !== "_templates");
+    const entries = await readdir(CONTACTS_DIR, { withFileTypes: true });
+    const dirs = entries.filter(e => e.isDirectory());
     const results = await Promise.all(dirs.map(e => readContact(e.name)));
     return results.filter((c): c is Contact => c !== null);
   } catch {
@@ -106,15 +107,13 @@ export async function writeContact(
   data: Record<string, unknown>,
   content: string,
 ): Promise<void> {
-  const dir = join(CRM_DIR, slug);
-  // Ensure dir exists
-  await Bun.write(join(dir, ".keep"), ""); // creates dir implicitly
+  const dir = join(CONTACTS_DIR, slug);
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(dir, { recursive: true });
   const { _content, slug: _slug, ...frontmatter } = data;
   const normalized = normalizeContactData(frontmatter);
   const md = matter.stringify(content, normalized);
   await Bun.write(join(dir, "contact.md"), md);
-  // Clean up .keep if it was just for dir creation
-  try { const f = Bun.file(join(dir, ".keep")); if (await f.exists()) await Bun.write(join(dir, ".keep"), ""); } catch {}
 }
 
 // ---------------------------------------------------------------------------

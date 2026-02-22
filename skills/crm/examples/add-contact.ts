@@ -14,7 +14,7 @@
 import matter from "gray-matter";
 import { join } from "node:path";
 import {
-  CRM_DIR, slugify, normalizePhone, normalizeEmail, ensureArray,
+  CONTACTS_DIR, slugify, normalizePhone, normalizeEmail, ensureArray,
   normalizeContactData, allContacts, findDuplicate, readContact,
 } from "./lib.ts";
 import { mkdirSync, existsSync } from "node:fs";
@@ -48,7 +48,7 @@ if (dupSlug) {
   const existing = await readContact(dupSlug);
   if (!existing) { console.error("Could not read existing contact:", dupSlug); process.exit(1); }
 
-  const file = Bun.file(join(CRM_DIR, dupSlug, "contact.md"));
+  const file = Bun.file(join(CONTACTS_DIR, dupSlug, "contact.md"));
   const raw = await file.text();
   const { data, content } = matter(raw);
   const d = normalizeContactData(data as Record<string, unknown>);
@@ -89,19 +89,19 @@ if (dupSlug) {
 
   const { slug: _, _content: __, ...frontmatter } = d;
   const md = matter.stringify(content + mergeNote, frontmatter);
-  await Bun.write(join(CRM_DIR, dupSlug, "contact.md"), md);
+  await Bun.write(join(CONTACTS_DIR, dupSlug, "contact.md"), md);
   console.log(`Merged into existing: ${dupSlug}/contact.md`);
 
 } else {
   // --- CREATE new ---
   let slug = slugify(name);
-  if (existsSync(join(CRM_DIR, slug))) {
+  if (existsSync(join(CONTACTS_DIR, slug))) {
     let i = 2;
-    while (existsSync(join(CRM_DIR, `${slug}-${i}`))) i++;
+    while (existsSync(join(CONTACTS_DIR, `${slug}-${i}`))) i++;
     slug = `${slug}-${i}`;
   }
 
-  const dir = join(CRM_DIR, slug);
+  const dir = join(CONTACTS_DIR, slug);
   mkdirSync(dir, { recursive: true });
 
   const data: Record<string, unknown> = { name };

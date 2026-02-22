@@ -31,17 +31,18 @@ rachel-memory/crm/
     add-contact.ts    ← create/merge contacts
     overdue-report.ts ← find overdue follow-ups
     schema.ts         ← introspect all frontmatter fields + types
-  marco-rossi/        ← contact directories
-    contact.md        ← main file (frontmatter + notes + interactions)
-    proposal-v2.pdf   ← any related files
-  sarah-chen/
-    contact.md
-    meeting-notes.md
+  contacts/           ← all contact directories live here
+    marco-rossi/
+      contact.md      ← main file (frontmatter + notes + interactions)
+      proposal-v2.pdf ← any related files
+    sarah-chen/
+      contact.md
+      meeting-notes.md
 ```
 
-Contacts and scripts live together in the same bun project. When you need a new dependency, just `bun add <package>` in the CRM root.
+Scripts and contacts are separated cleanly. When you need a new dependency, just `bun add <package>` in the CRM root.
 
-- Each contact is a **directory** named as a slug: lowercase, hyphens, no spaces (e.g. `marco-rossi`)
+- Each contact is a **directory** inside `contacts/`, named as a slug: lowercase, hyphens, no spaces (e.g. `marco-rossi`)
 - `contact.md` is always the main file
 - Any other files in the dir are associated with that contact (contracts, images, notes, etc.)
 - If two people share a name, append a number: `marco-rossi-2` — but FIRST verify they are not the same person by checking phone, email, company
@@ -175,7 +176,7 @@ When scheduling a follow-up:
 sqlite3 $SHARED_FOLDER_PATH/rachel9/data.db "INSERT INTO tasks (name, type, data, next_run) VALUES (
   'followup-marco-rossi',
   'agent',
-  '{\"prompt\":\"Follow-up due for Marco Rossi. Read $SHARED_FOLDER_PATH/rachel-memory/crm/marco-rossi/contact.md for full context. Review latest interactions, send the user: 1) who Marco is and what is pending, 2) suggested action, 3) draft message if appropriate. Update last_contact and ask about next follow-up.\"}',
+  '{\"prompt\":\"Follow-up due for Marco Rossi. Read $SHARED_FOLDER_PATH/rachel-memory/crm/contacts/marco-rossi/contact.md for full context. Review latest interactions, send the user: 1) who Marco is and what is pending, 2) suggested action, 3) draft message if appropriate. Update last_contact and ask about next follow-up.\"}',
   $(date -d '2026-02-27 09:00 UTC' +%s)000
 );"
 ```
