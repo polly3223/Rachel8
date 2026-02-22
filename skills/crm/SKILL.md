@@ -7,22 +7,39 @@ description: Conversational CRM for managing contacts, leads, relationships, and
 
 Manage contacts, relationships, and follow-ups through natural conversation. Data lives in markdown files — one directory per contact under `$SHARED_FOLDER_PATH/rachel-memory/crm/`.
 
-## Dependencies
+## Working Directory
 
-Scripts use `gray-matter` for frontmatter parsing (already installed in the project). Use Bun native APIs (`Bun.file()`, `Bun.write()`, `readdir` from `node:fs/promises`) for all file I/O.
+The CRM root is `$SHARED_FOLDER_PATH/rachel-memory/crm/`. This is a **Bun project** with its own `package.json` and dependencies. ALL CRM scripts run from here.
+
+On first use, if the project isn't initialized yet:
+```bash
+cd $SHARED_FOLDER_PATH/rachel-memory/crm && bun init -y && bun add gray-matter
+```
+
+When writing new scripts, always create them in `scripts/` within this dir and run with `bun run scripts/my-script.ts` from the CRM root. This ensures gray-matter and any other deps are available.
 
 ## Directory Structure
 
 ```
 rachel-memory/crm/
-  marco-rossi/
+  package.json        ← bun project
+  bun.lock
+  node_modules/
+  scripts/            ← CRM scripts (seed scripts + any you create)
+    lib.ts            ← shared utilities (normalize, parse, dedup, format)
+    search.ts         ← search/filter contacts
+    add-contact.ts    ← create/merge contacts
+    overdue-report.ts ← find overdue follow-ups
+    schema.ts         ← introspect all frontmatter fields + types
+  marco-rossi/        ← contact directories
     contact.md        ← main file (frontmatter + notes + interactions)
     proposal-v2.pdf   ← any related files
-    contract.docx
   sarah-chen/
     contact.md
     meeting-notes.md
 ```
+
+Contacts and scripts live together in the same bun project. When you need a new dependency, just `bun add <package>` in the CRM root.
 
 - Each contact is a **directory** named as a slug: lowercase, hyphens, no spaces (e.g. `marco-rossi`)
 - `contact.md` is always the main file
@@ -112,12 +129,15 @@ When importing from WhatsApp groups: a contact may only have a phone number. Nor
 
 ### Scripting Rules
 
-1. Use `gray-matter` for all frontmatter parsing/serialization
-2. Use `Bun.file().text()` for reading, `Bun.write()` for writing
-3. Use `readdir` from `node:fs/promises` with `withFileTypes` for listing
-4. For multi-contact queries, ALWAYS read files in parallel (`Promise.all`)
-5. Write scripts on the fly for whatever the user needs — don't be limited to the examples
-6. The examples/ dir has starter scripts — adapt, extend, or write new ones
+1. Always `cd $SHARED_FOLDER_PATH/rachel-memory/crm` before running scripts
+2. Use `gray-matter` for all frontmatter parsing/serialization
+3. Use `Bun.file().text()` for reading, `Bun.write()` for writing
+4. Use `readdir` from `node:fs/promises` with `withFileTypes` for listing
+5. For multi-contact queries, ALWAYS read files in parallel (`Promise.all`)
+6. Write scripts on the fly for whatever the user needs — save them in `scripts/`
+7. Import shared utilities from `./lib.ts` (normalization, parsing, dedup)
+8. When you need new dependencies: `bun add <package>` in the CRM root
+9. Keep useful scripts, delete one-off throwaway scripts after use
 
 ### Adding Contacts
 
@@ -168,15 +188,24 @@ When user says "I'm meeting [name] tomorrow":
 3. Suggest talking points
 4. If no contact exists, offer to create one and do web research
 
-## Example Scripts
+## Scripts
 
-See `examples/` in the skill directory:
-- `search.ts` — filter contacts by tag, list, location, company, overdue, dormant
-- `add-contact.ts` — create/merge contacts with normalization + dedup
-- `overdue-report.ts` — find overdue follow-ups
-- `schema.ts` — introspect all frontmatter fields, their types, and sample values
+The CRM dir has seed scripts in `scripts/`. Run them with `bun run scripts/<name>.ts` from the CRM root:
 
-All scripts use gray-matter + Bun native APIs. Use them as reference and write new scripts as needed.
+- `lib.ts` — shared utilities: normalizePhone, normalizeEmail, ensureArray, readContact, allContacts, writeContact, findDuplicate, formatContact, slugify
+- `search.ts` — filter by --tag, --list, --location, --company, --name, --phone, --email, --overdue, --dormant
+- `add-contact.ts` — create or merge contacts with full normalization + dedup
+- `overdue-report.ts` — find contacts with overdue follow-ups
+- `schema.ts` — introspect all frontmatter fields with types and sample values
+
+The `examples/` dir in the skill folder contains the same seed scripts as reference. The live working copies are in the CRM dir at `$SHARED_FOLDER_PATH/rachel-memory/crm/scripts/`.
+
+Write new scripts freely — import from `./lib.ts` for utilities. Example:
+```typescript
+import { allContacts, ensureArray } from "./lib.ts";
+const contacts = await allContacts();
+// ... your custom logic
+```
 
 ## Important Rules
 
