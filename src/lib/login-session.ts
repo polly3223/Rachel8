@@ -4,6 +4,7 @@ import { logger } from "./logger.ts";
 import { errorMessage } from "./errors.ts";
 import { formatProviderName, normalizeProvider, type AIProvider } from "../ai/provider.ts";
 import { getProviderAuthStatus } from "../ai/auth.ts";
+import { resolveCliPath } from "../ai/cli-path.ts";
 
 const LOGIN_TIMEOUT_MS = 20 * 60 * 1000;
 const CODEX_URL_RE = /https:\/\/auth\.openai\.com\/codex\/device/;
@@ -44,16 +45,18 @@ function cleanOutput(text: string): string {
     .trim();
 }
 
-function buildCommand(provider: AIProvider): { cmd: string; args: string[] } {
+async function buildCommand(provider: AIProvider): Promise<{ cmd: string; args: string[] }> {
   if (provider === "claudecode") {
+    const claude = await resolveCliPath("claudecode");
     return {
       cmd: "script",
-      args: ["-q", "/dev/null", "zsh", "-lc", "claude setup-token"],
+      args: ["-q", "/dev/null", "zsh", "-lc", `${claude} setup-token`],
     };
   }
 
+  const codex = await resolveCliPath("codex");
   return {
-    cmd: "codex",
+    cmd: codex,
     args: ["login", "--device-auth"],
   };
 }
@@ -166,7 +169,7 @@ export async function startLoginSession(providerArg?: string): Promise<string> {
     return `A ${formatProviderName(activeSession.provider)} login is already in progress. Cancel it first with /login_cancel.`;
   }
 
-  const { cmd, args } = buildCommand(provider);
+  const { cmd, args } = await buildCommand(provider);
   const child = spawn(cmd, args, {
     stdio: ["pipe", "pipe", "pipe"],
     env: {

@@ -6,7 +6,7 @@ import { BASE_SYSTEM_PROMPT } from "./prompt.ts";
 import { loadSessionMap, saveSessionMap } from "./session-store.ts";
 import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
 
-const MODEL = "gpt5.4";
+const MODEL = "gpt-5.4";
 
 const codex = new Codex();
 

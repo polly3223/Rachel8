@@ -1,6 +1,7 @@
 import { env } from "../config/env.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { formatProviderName, type AIProvider } from "./provider.ts";
+import { resolveCliPath } from "./cli-path.ts";
 
 class CommandFailure extends Error {
   constructor(
@@ -56,7 +57,8 @@ async function runCommandOrThrow(cmd: string[]): Promise<string> {
 
 async function assertClaudeAuthenticated(): Promise<void> {
   try {
-    const stdout = await runCommandOrThrow(["claude", "auth", "status"]);
+    const claude = await resolveCliPath("claudecode");
+    const stdout = await runCommandOrThrow([claude, "auth", "status"]);
     const parsed = JSON.parse(stdout) as { loggedIn?: boolean };
     if (!parsed.loggedIn) {
       throw new ProviderAuthError("claudecode");
@@ -76,7 +78,8 @@ async function assertClaudeAuthenticated(): Promise<void> {
 }
 
 async function assertCodexAuthenticated(): Promise<void> {
-  const { stdout, stderr, exitCode } = await runCommand(["codex", "login", "status"]);
+  const codex = await resolveCliPath("codex");
+  const { stdout, stderr, exitCode } = await runCommand([codex, "login", "status"]);
   const combined = `${stdout}\n${stderr}`.toLowerCase();
 
   if (exitCode !== 0 || combined.includes("not logged in")) {
@@ -120,7 +123,8 @@ export async function getProviderAuthStatus(
   provider: AIProvider = env.AI_PROVIDER,
 ): Promise<{ provider: AIProvider; loggedIn: boolean; detail: string }> {
   if (provider === "claudecode") {
-    const { stdout, stderr, exitCode } = await runCommand(["claude", "auth", "status"]);
+    const claude = await resolveCliPath("claudecode");
+    const { stdout, stderr, exitCode } = await runCommand([claude, "auth", "status"]);
     const detail = (stdout || stderr).trim();
     if (exitCode !== 0) {
       return { provider, loggedIn: false, detail };
@@ -143,7 +147,8 @@ export async function getProviderAuthStatus(
     }
   }
 
-  const { stdout, stderr, exitCode } = await runCommand(["codex", "login", "status"]);
+  const codex = await resolveCliPath("codex");
+  const { stdout, stderr, exitCode } = await runCommand([codex, "login", "status"]);
   const detail = (stdout || stderr).trim();
   return {
     provider,

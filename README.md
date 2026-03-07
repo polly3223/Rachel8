@@ -92,6 +92,21 @@ brew install --cask codex
 
 Both setups work the same once the chosen CLI is installed and logged in, so a Linux VPS and a Mac mini server follow the same Rachel flow after this step.
 
+### Provider CLI path notes
+
+Rachel needs to be able to find the selected provider CLI from both your shell and the `systemd --user` service.
+
+- Rachel automatically checks common install locations, including `~/.local/bin`, `~/.bun/bin`, `/usr/local/bin`, `/opt/homebrew/bin`, and `/home/linuxbrew/.linuxbrew/bin`
+- This covers typical Homebrew/Linuxbrew installs of both Codex and Claude Code
+- `systemd --user` may not inherit the same `PATH` as your interactive shell, so a CLI that works in your terminal can still fail when Rachel runs as a service
+
+If your CLI lives somewhere unusual, set an explicit override in `.env`:
+
+```bash
+CLAUDE_BIN=/full/path/to/claude
+CODEX_BIN=/full/path/to/codex
+```
+
 ### 5. Clone and install
 
 ```bash
@@ -117,6 +132,7 @@ codex login status
 ```
 
 Rachel expects the selected CLI to already be logged in on the server. There are no provider-specific auth settings in `.env`.
+If the CLI is installed outside the usual locations, add `CLAUDE_BIN` or `CODEX_BIN` to `.env` so the Telegram bot and systemd service resolve the same executable.
 
 ### 7. Run the setup wizard
 
