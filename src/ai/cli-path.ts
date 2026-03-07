@@ -1,12 +1,10 @@
-import { env } from "../config/env.ts";
 import type { AIProvider } from "./provider.ts";
 
-const HOME = process.env["HOME"] ?? env.SHARED_FOLDER_PATH;
+const HOME = process.env["HOME"] ?? "";
 
 function candidatePaths(provider: AIProvider): string[] {
   if (provider === "claudecode") {
     return [
-      process.env["CLAUDE_BIN"] ?? "",
       Bun.which("claude") ?? "",
       `${HOME}/.local/bin/claude`,
       `${HOME}/.bun/bin/claude`,
@@ -16,7 +14,6 @@ function candidatePaths(provider: AIProvider): string[] {
   }
 
   return [
-    process.env["CODEX_BIN"] ?? "",
     Bun.which("codex") ?? "",
     `${HOME}/.local/bin/codex`,
     `${HOME}/.bun/bin/codex`,
@@ -35,5 +32,5 @@ export async function resolveCliPath(provider: AIProvider): Promise<string> {
   }
 
   const binary = provider === "claudecode" ? "claude" : "codex";
-  throw new Error(`Executable not found in $PATH: "${binary}"`);
+  throw new Error(`Executable not found in standard locations for "${binary}"`);
 }
