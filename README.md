@@ -1,8 +1,8 @@
 # Rachel
 
-Personal AI assistant on Telegram, powered by Claude. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
+Personal AI assistant on Telegram, powered by Claude or Codex. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
 
-Rachel uses the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — no API key needed, works with your Claude Max/Pro subscription.
+Rachel supports both the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) and the [OpenAI Codex SDK](https://developers.openai.com/codex/sdk/). Choose the provider with `AI_PROVIDER=claudecode` or `AI_PROVIDER=codex` in `.env`.
 
 ## What can she do?
 
@@ -18,7 +18,9 @@ Rachel uses the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk
 
 She's not a chatbot. She's a full AI agent with tools, running on your own server.
 
-## Setup (fresh VPS)
+## Setup
+
+`bun run setup` writes `.env` and is the setup flow.
 
 All commands below assume a fresh Ubuntu server. Run everything in order.
 
@@ -52,19 +54,26 @@ source ~/.bashrc
 gh auth login
 ```
 
-### 4. Install Claude Code and log in
+### 4. Install your agent runtime
+
+Pick one:
+
+For `AI_PROVIDER=claudecode`:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
 source ~/.bashrc
 claude login
-```
-
-Verify it works:
-
-```bash
 claude -p 'say hello'
 ```
+
+For `AI_PROVIDER=codex`:
+
+```bash
+bun x codex login
+```
+
+Rachel expects the selected app to already be installed and logged in on the server. There are no provider-specific auth settings in `.env`.
 
 ### 5. Clone and install
 
@@ -83,6 +92,7 @@ bun run setup
 The wizard will ask for:
 - **Telegram bot token** — create one via [@BotFather](https://t.me/BotFather) (`/newbot`)
 - **Your Telegram user ID** — send `/start` to [@userinfobot](https://t.me/userinfobot)
+- **AI provider** — `claudecode` or `codex`
 - **Shared folder path** — where Rachel stores memory, files, and data
 - **systemd service** — optionally installs Rachel as a background service
 
@@ -121,21 +131,18 @@ bun run setup        # Re-run setup wizard
 bun test             # Run tests
 ```
 
-## Service Management
+## Remote Re-Login
 
-Rachel runs as a systemd service. These commands need to be run by a user with sudo (e.g., root):
+If the selected CLI session expires, Rachel will tell you on Telegram and ask you to run `/login`.
 
-```bash
-systemctl status rachel8      # Check status
-systemctl restart rachel8     # Restart
-systemctl stop rachel8        # Stop
-journalctl -u rachel8 -f      # Follow logs
-journalctl -u rachel8 -n 50   # Last 50 log lines
-```
+- `/login` starts the login flow for the configured provider
+- `/login_status` shows whether `claudecode` or `codex` is currently logged in
+- `/login_code <code>` sends a one-time code back to the CLI if the provider asks for it
+- `/login_cancel` aborts an in-progress login flow
 
 ## How it works
 
-Rachel is built on the Claude Agent SDK — the same engine behind Claude Code. When you send a message on Telegram, Rachel processes it with full tool access:
+Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses Claude Agent SDK or OpenAI Codex SDK with full tool access:
 
 - **Bash** — run any command on the server
 - **File system** — read, write, edit any file
@@ -151,7 +158,9 @@ rachel8/
 ├── src/
 │   ├── index.ts              # Entry point
 │   ├── ai/
-│   │   └── claude.ts         # Claude Agent SDK client + session management
+│   │   ├── index.ts          # Provider selector
+│   │   ├── claude.ts         # Claude Agent SDK adapter
+│   │   └── codex.ts          # OpenAI Codex SDK adapter
 │   ├── config/
 │   │   └── env.ts            # Zod-validated environment config
 │   ├── telegram/
@@ -169,7 +178,6 @@ rachel8/
 │       ├── memory.ts         # Memory system (daily logs, MEMORY.md)
 │       └── tasks.ts          # SQLite task scheduler
 ├── skills/                    # Extensible skill files
-├── rachel8.service            # systemd unit file template
 ├── package.json
 ├── tsconfig.json
 ├── .env.example

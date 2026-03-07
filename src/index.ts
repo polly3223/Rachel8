@@ -4,19 +4,29 @@ import { logger } from "./lib/logger.ts";
 import { errorMessage } from "./lib/errors.ts";
 import { initializeMemorySystem } from "./lib/memory.ts";
 import { setTelegramSender, setAgentExecutor, startTaskPoller, shutdownTasks } from "./lib/tasks.ts";
-import { generateResponse } from "./ai/claude.ts";
+import { generateResponse } from "./ai/index.ts";
 import { setShuttingDown } from "./lib/state.ts";
+import { setLoginNotifier } from "./lib/login-session.ts";
 
 logger.info("Rachel8 starting...", { env: env.NODE_ENV });
 logger.info("Configuration loaded", {
   sharedFolder: env.SHARED_FOLDER_PATH,
   logLevel: env.LOG_LEVEL,
+  aiProvider: env.AI_PROVIDER,
 });
 
 await initializeMemorySystem();
 
 setTelegramSender(async (text: string) => {
   await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);
+});
+
+setLoginNotifier(async (text: string) => {
+  await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text, {
+    parse_mode: "Markdown",
+  }).catch(async () => {
+    await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);
+  });
 });
 
 setAgentExecutor(async (prompt: string) => {
@@ -71,15 +81,15 @@ if (shouldSendStartup) {
 // Standalone instances (like the host Rachel) use traditional long polling.
 // ---------------------------------------------------------------------------
 
-const isWebhookMode = Bun.env.RACHEL_CLOUD === "true";
+const isWebhookMode = Bun.env["RACHEL_CLOUD"] === "true";
 
 if (isWebhookMode) {
-  const WEBHOOK_PORT = Number(Bun.env.WEBHOOK_PORT || "8443");
+  const WEBHOOK_PORT = Number(Bun.env["WEBHOOK_PORT"] || "8443");
 
   // Initialize grammY bot internals without polling
   await bot.init();
 
-  const server = Bun.serve({
+  Bun.serve({
     port: WEBHOOK_PORT,
     async fetch(req: Request) {
       const url = new URL(req.url);
@@ -95,7 +105,7 @@ if (isWebhookMode) {
       if (req.method === "POST" && url.pathname === "/webhook") {
         try {
           const update = await req.json();
-          await bot.handleUpdate(update);
+          await bot.handleUpdate(update as Parameters<typeof bot.handleUpdate>[0]);
           return new Response(JSON.stringify({ ok: true }), {
             headers: { "Content-Type": "application/json" },
           });

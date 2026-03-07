@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
+  validateAiProvider,
   validateTelegramToken,
   validateFolderPath,
 } from "./validate.ts";
@@ -87,5 +88,23 @@ describe("validateFolderPath", () => {
     expect(validateFolderPath("~/documents")).toBe(
       "Path must be absolute (start with /)",
     );
+  });
+});
+
+describe("validateAiProvider", () => {
+  test("accepts claudecode", () => {
+    expect(validateAiProvider("claudecode")).toBeUndefined();
+  });
+
+  test("accepts codex", () => {
+    expect(validateAiProvider("codex")).toBeUndefined();
+  });
+
+  test("rejects empty string", () => {
+    expect(validateAiProvider("")).toBe("AI provider is required");
+  });
+
+  test("rejects unsupported providers", () => {
+    expect(validateAiProvider("gemini")).toBe('Use "claudecode" or "codex"');
   });
 });

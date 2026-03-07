@@ -1,10 +1,11 @@
 import type { BotContext } from "../bot.ts";
-import { generateResponse } from "../../ai/claude.ts";
+import { generateResponse } from "../../ai/index.ts";
 import { logger } from "../../lib/logger.ts";
 import { errorMessage } from "../../lib/errors.ts";
 import { isShuttingDown } from "../../lib/state.ts";
 import { downloadTelegramFile } from "./file.ts";
 import { transcribeAudio } from "./transcribe.ts";
+import { ProviderAuthError } from "../../ai/auth.ts";
 
 function timestamp(): string {
   const now = new Date();
@@ -17,7 +18,17 @@ function timestamp(): string {
   return dt.replace(", ", " ") + tz;
 }
 
+const SKIP_RESPONSES = ["", "no response requested.", "no response requested", "no response needed.", "no response needed"];
+
+function shouldSendResponse(response: string): boolean {
+  return !SKIP_RESPONSES.includes(response.trim().toLowerCase());
+}
+
 async function sendResponse(ctx: BotContext, response: string): Promise<void> {
+  if (!shouldSendResponse(response)) {
+    return;
+  }
+
   try {
     await ctx.reply(response, { parse_mode: "Markdown" });
   } catch {
@@ -35,6 +46,11 @@ function withErrorHandling(
     try {
       await handler(ctx);
     } catch (error) {
+      if (error instanceof ProviderAuthError) {
+        await ctx.reply(error.message);
+        return;
+      }
+
       // During shutdown (e.g. restart), the Claude process gets killed by SIGTERM.
       // This is expected — don't log an error or send a confusing reply to the user.
       if (isShuttingDown()) {
@@ -49,20 +65,12 @@ function withErrorHandling(
   };
 }
 
-const SKIP_RESPONSES = ["no response requested.", "no response requested", "no response needed.", "no response needed"];
-
-function shouldSendResponse(response: string): boolean {
-  return !SKIP_RESPONSES.includes(response.trim().toLowerCase());
-}
-
 export const handleMessage = withErrorHandling("message", async (ctx) => {
   const text = ctx.message?.text;
   if (!text) return;
 
   const response = await generateResponse(ctx.chat!.id, `${timestamp()} ${text}`);
-  if (shouldSendResponse(response)) {
-    await sendResponse(ctx, response);
-  }
+  await sendResponse(ctx, response);
 });
 
 export const handlePhoto = withErrorHandling("image", async (ctx) => {

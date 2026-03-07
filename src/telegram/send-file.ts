@@ -25,8 +25,8 @@ if (!filePath) {
   process.exit(1);
 }
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const chatId = process.env.OWNER_TELEGRAM_USER_ID;
+const token = process.env["TELEGRAM_BOT_TOKEN"];
+const chatId = process.env["OWNER_TELEGRAM_USER_ID"];
 
 if (!token || !chatId) {
   console.error("Missing TELEGRAM_BOT_TOKEN or OWNER_TELEGRAM_USER_ID env vars");

@@ -28,3 +28,13 @@ export function validateFolderPath(
   }
   return undefined;
 }
+
+export function validateAiProvider(
+  value: string | undefined,
+): string | undefined {
+  if (!value) return "AI provider is required";
+  if (value !== "claudecode" && value !== "codex") {
+    return 'Use "claudecode" or "codex"';
+  }
+  return undefined;
+}
