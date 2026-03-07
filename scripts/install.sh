@@ -24,13 +24,6 @@ main() {
     exit 1
   fi
 
-  if ! command -v claude >/dev/null 2>&1; then
-    echo "Error: Claude Code is required but not installed."
-    echo "Install it: curl -fsSL https://claude.ai/install.sh | bash"
-    echo "Then log in: claude login"
-    exit 1
-  fi
-
   INSTALL_DIR="$HOME/rachel8"
 
   if [ -d "$INSTALL_DIR" ]; then
@@ -47,6 +40,11 @@ main() {
 
   echo "Installing dependencies..."
   bun install
+
+  echo ""
+  echo "Agent provider setup:"
+  echo "  Claude: install Claude Code and run 'claude login'"
+  echo "  Codex:  install Codex and run 'bun x codex login'"
 
   # ── Launch wizard ──────────────────────────────────────────────────────────
 

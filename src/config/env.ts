@@ -17,6 +17,10 @@ export const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("production"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+  AI_PROVIDER: z
+    .enum(["claudecode", "codex", "claude"])
+    .default("codex")
+    .transform((value) => (value === "claude" ? "claudecode" : value)),
 });
 
 export type Env = z.infer<typeof envSchema>;
