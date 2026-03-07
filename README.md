@@ -1,8 +1,12 @@
 # Rachel
 
-Personal AI assistant on Telegram, powered by Claude or Codex. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
+Personal AI assistant on Telegram, powered by Claude Code or Codex. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
 
-Rachel supports both the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) and the [OpenAI Codex SDK](https://developers.openai.com/codex/sdk/). Choose the provider with `AI_PROVIDER=claudecode` or `AI_PROVIDER=codex` in `.env`.
+Rachel supports both the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) and the [OpenAI Codex SDK](https://developers.openai.com/codex/sdk/). Choose the provider with `AI_PROVIDER=claudecode` or `AI_PROVIDER=codex` in `.env`. The default is `codex`.
+
+You need exactly one provider CLI installed on the server:
+- `claudecode` needs Claude Code installed and logged in
+- `codex` needs Codex installed and logged in
 
 ## What can she do?
 
@@ -54,15 +58,53 @@ source ~/.bashrc
 gh auth login
 ```
 
-### 4. Install your agent runtime
+### 4. Install one provider CLI
 
-Pick one:
+Pick one.
 
 For `AI_PROVIDER=claudecode`:
+
+On Linux/server environments:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
 source ~/.bashrc
+```
+
+On macOS with Homebrew-managed Node:
+
+```bash
+brew install node
+npm install -g @anthropic-ai/claude-code
+```
+
+For `AI_PROVIDER=codex`:
+
+On Linux/server environments:
+
+Rachel can use the bundled Codex CLI after `bun install`, so there is nothing extra to install in this step.
+
+On macOS with Homebrew:
+
+```bash
+brew install --cask codex
+```
+
+Both setups work the same once the chosen CLI is installed and logged in, so a Linux VPS and a Mac mini server follow the same Rachel flow after this step.
+
+### 5. Clone and install
+
+```bash
+gh repo clone <your-username>/rachel8 ~/rachel8
+cd ~/rachel8
+bun install
+```
+
+### 6. Log in to your chosen provider CLI
+
+For `AI_PROVIDER=claudecode`:
+
+```bash
 claude login
 claude -p 'say hello'
 ```
@@ -71,19 +113,12 @@ For `AI_PROVIDER=codex`:
 
 ```bash
 bun x codex login
+codex login status
 ```
 
-Rachel expects the selected app to already be installed and logged in on the server. There are no provider-specific auth settings in `.env`.
+Rachel expects the selected CLI to already be logged in on the server. There are no provider-specific auth settings in `.env`.
 
-### 5. Clone and install
-
-```bash
-gh repo clone <your-username>/rachel ~/rachel8
-cd ~/rachel8
-bun install
-```
-
-### 6. Run the setup wizard
+### 7. Run the setup wizard
 
 ```bash
 bun run setup
@@ -96,13 +131,13 @@ The wizard will ask for:
 - **Shared folder path** — where Rachel stores memory, files, and data
 - **systemd service** — optionally installs Rachel as a background service
 
-### 7. Start Rachel
+### 8. Start Rachel
 
 If you installed the systemd service (recommended):
 
 ```bash
-sudo systemctl start rachel8
-sudo systemctl status rachel8
+systemctl --user start rachel8
+systemctl --user status rachel8
 ```
 
 Or run manually:
@@ -159,13 +194,16 @@ rachel8/
 │   ├── index.ts              # Entry point
 │   ├── ai/
 │   │   ├── index.ts          # Provider selector
+│   │   ├── auth.ts           # Provider auth checks + login error mapping
 │   │   ├── claude.ts         # Claude Agent SDK adapter
-│   │   └── codex.ts          # OpenAI Codex SDK adapter
+│   │   ├── codex.ts          # OpenAI Codex SDK adapter
+│   │   └── provider.ts       # Provider names + normalization
 │   ├── config/
 │   │   └── env.ts            # Zod-validated environment config
 │   ├── telegram/
 │   │   ├── bot.ts            # grammY bot instance and middleware
 │   │   ├── handlers/
+│   │   │   ├── auth.ts       # /login, /login_code, /login_status
 │   │   │   └── message.ts    # Message handler (text, voice, photos, files)
 │   │   └── middleware/
 │   │       └── auth.ts       # Single-user auth guard
@@ -174,6 +212,7 @@ rachel8/
 │   │   ├── install.ts        # systemd service installer
 │   │   └── validate.ts       # Format validators
 │   └── lib/
+│       ├── login-session.ts  # Interactive CLI login session manager
 │       ├── logger.ts         # Logging
 │       ├── memory.ts         # Memory system (daily logs, MEMORY.md)
 │       └── tasks.ts          # SQLite task scheduler
