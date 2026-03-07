@@ -131,6 +131,15 @@ bun run setup        # Re-run setup wizard
 bun test             # Run tests
 ```
 
+## Remote Re-Login
+
+If the selected CLI session expires, Rachel will tell you on Telegram and ask you to run `/login`.
+
+- `/login` starts the login flow for the configured provider
+- `/login_status` shows whether `claudecode` or `codex` is currently logged in
+- `/login_code <code>` sends a one-time code back to the CLI if the provider asks for it
+- `/login_cancel` aborts an in-progress login flow
+
 ## How it works
 
 Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses Claude Agent SDK or OpenAI Codex SDK with full tool access:

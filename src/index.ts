@@ -6,6 +6,7 @@ import { initializeMemorySystem } from "./lib/memory.ts";
 import { setTelegramSender, setAgentExecutor, startTaskPoller, shutdownTasks } from "./lib/tasks.ts";
 import { generateResponse } from "./ai/index.ts";
 import { setShuttingDown } from "./lib/state.ts";
+import { setLoginNotifier } from "./lib/login-session.ts";
 
 logger.info("Rachel8 starting...", { env: env.NODE_ENV });
 logger.info("Configuration loaded", {
@@ -18,6 +19,14 @@ await initializeMemorySystem();
 
 setTelegramSender(async (text: string) => {
   await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);
+});
+
+setLoginNotifier(async (text: string) => {
+  await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text, {
+    parse_mode: "Markdown",
+  }).catch(async () => {
+    await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);
+  });
 });
 
 setAgentExecutor(async (prompt: string) => {

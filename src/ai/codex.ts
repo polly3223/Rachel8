@@ -4,6 +4,7 @@ import { errorMessage } from "../lib/errors.ts";
 import { appendToDailyLog, buildSystemPromptWithMemory } from "../lib/memory.ts";
 import { BASE_SYSTEM_PROMPT } from "./prompt.ts";
 import { loadSessionMap, saveSessionMap } from "./session-store.ts";
+import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
 
 const MODEL = "gpt5.4";
 
@@ -66,6 +67,8 @@ export async function generateCodexResponse(
 ): Promise<string> {
   const existingThreadId = sessions.get(chatId);
 
+  await assertProviderAuthenticated("codex");
+
   await appendToDailyLog("user", userMessage);
   const systemPrompt = await buildSystemPromptWithMemory(BASE_SYSTEM_PROMPT);
 
@@ -108,6 +111,10 @@ export async function generateCodexResponse(
         result;
       await appendToDailyLog("assistant", freshNotice);
       return freshNotice;
+    }
+
+    if (isProviderAuthFailure("codex", error)) {
+      throw new ProviderAuthError("codex");
     }
 
     throw error;

@@ -5,6 +5,7 @@ import { errorMessage } from "../../lib/errors.ts";
 import { isShuttingDown } from "../../lib/state.ts";
 import { downloadTelegramFile } from "./file.ts";
 import { transcribeAudio } from "./transcribe.ts";
+import { ProviderAuthError } from "../../ai/auth.ts";
 
 function timestamp(): string {
   const now = new Date();
@@ -45,6 +46,11 @@ function withErrorHandling(
     try {
       await handler(ctx);
     } catch (error) {
+      if (error instanceof ProviderAuthError) {
+        await ctx.reply(error.message);
+        return;
+      }
+
       // During shutdown (e.g. restart), the Claude process gets killed by SIGTERM.
       // This is expected — don't log an error or send a confusing reply to the user.
       if (isShuttingDown()) {

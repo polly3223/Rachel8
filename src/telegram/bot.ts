@@ -4,6 +4,12 @@ import { env } from "../config/env.ts";
 import { logger } from "../lib/logger.ts";
 import { authGuard } from "./middleware/auth.ts";
 import {
+  handleLogin,
+  handleLoginCancel,
+  handleLoginCode,
+  handleLoginStatus,
+} from "./handlers/auth.ts";
+import {
   handleMessage,
   handlePhoto,
   handleDocument,
@@ -22,6 +28,10 @@ bot.use(authGuard);
 bot.use(autoChatAction());
 
 bot.command("start", (ctx) => ctx.reply("Hello! I'm Rachel, your personal AI assistant."));
+bot.command("login", handleLogin);
+bot.command("login_code", handleLoginCode);
+bot.command("login_cancel", handleLoginCancel);
+bot.command("login_status", handleLoginStatus);
 
 bot.on("message:text", handleMessage);
 bot.on("message:photo", handlePhoto);

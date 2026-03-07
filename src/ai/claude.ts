@@ -4,6 +4,7 @@ import { errorMessage } from "../lib/errors.ts";
 import { appendToDailyLog, buildSystemPromptWithMemory } from "../lib/memory.ts";
 import { BASE_SYSTEM_PROMPT } from "./prompt.ts";
 import { loadSessionMap, saveSessionMap } from "./session-store.ts";
+import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
 
 // Model can be overridden via env var.
 const MODEL = Bun.env["CLAUDE_MODEL"] || "claude-opus-4-6";
@@ -47,6 +48,8 @@ export async function generateClaudeResponse(
   userMessage: string,
 ): Promise<string> {
   const existingSessionId = sessions.get(chatId);
+
+  await assertProviderAuthenticated("claudecode");
 
   // Log user message to daily log
   await appendToDailyLog("user", userMessage);
@@ -99,11 +102,18 @@ export async function generateClaudeResponse(
         await appendToDailyLog("assistant", freshNotice);
         return freshNotice;
       } catch (retryError) {
+        if (isProviderAuthFailure("claudecode", retryError)) {
+          throw new ProviderAuthError("claudecode");
+        }
         logger.error("Failed even with fresh session", {
           error: errorMessage(retryError),
         });
         throw retryError;
       }
+    }
+
+    if (isProviderAuthFailure("claudecode", error)) {
+      throw new ProviderAuthError("claudecode");
     }
 
     throw error;
