@@ -20,11 +20,7 @@ She's not a chatbot. She's a full AI agent with tools, running on your own serve
 
 ## Setup
 
-`bun run setup` is the real configuration step. It writes `.env`.
-
-`scripts/install.sh` is only a convenience bootstrap: it checks prerequisites, clones the repo into `~/rachel8`, installs dependencies, and then runs `bun run setup` for you.
-
-If you already have the repo checked out, skip `scripts/install.sh` and just use `bun run setup`.
+`bun run setup` writes `.env` and is the setup flow.
 
 All commands below assume a fresh Ubuntu server. Run everything in order.
 
