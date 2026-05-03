@@ -10,6 +10,7 @@ function candidatePaths(provider: AIProvider): string[] {
       `${HOME}/.bun/bin/claude`,
       "/usr/local/bin/claude",
       "/opt/homebrew/bin/claude",
+      "/home/linuxbrew/.linuxbrew/bin/claude",
     ];
   }
 
