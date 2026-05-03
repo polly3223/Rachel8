@@ -21,6 +21,7 @@ export const envSchema = z.object({
     .enum(["claudecode", "codex", "claude"])
     .default("codex")
     .transform((value) => (value === "claude" ? "claudecode" : value)),
+  CODEX_MODEL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

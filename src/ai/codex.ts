@@ -5,8 +5,9 @@ import { appendToDailyLog, buildSystemPromptWithMemory } from "../lib/memory.ts"
 import { BASE_SYSTEM_PROMPT } from "./prompt.ts";
 import { loadSessionMap, saveSessionMap } from "./session-store.ts";
 import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
+import { env } from "../config/env.ts";
 
-const MODEL = "gpt-5.4";
+const MODEL = env.CODEX_MODEL || "gpt-5.5";
 
 const codex = new Codex();
 
