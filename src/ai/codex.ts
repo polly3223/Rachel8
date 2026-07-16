@@ -6,10 +6,19 @@ import { BASE_SYSTEM_PROMPT } from "./prompt.ts";
 import { loadSessionMap, saveSessionMap } from "./session-store.ts";
 import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
 import { env } from "../config/env.ts";
+import { LINEAR_APP_ID } from "../lib/connector-config.ts";
 
 const MODEL = env.CODEX_MODEL || "gpt-5.5";
 
-const codex = new Codex();
+const codex = new Codex({
+  config: {
+    // Linear's local MCP uses Telegram-managed OAuth. Disable only the stale
+    // ChatGPT app path so Codex cannot select it ahead of the local server.
+    apps: {
+      [LINEAR_APP_ID]: { enabled: false },
+    },
+  },
+});
 
 const threadOptions: ThreadOptions = {
   sandboxMode: "danger-full-access",

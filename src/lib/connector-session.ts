@@ -3,9 +3,9 @@ import { resolveCliPath } from "../ai/cli-path.ts";
 import { errorMessage } from "./errors.ts";
 import { logger } from "./logger.ts";
 import { cleanTerminalOutput, outputTail } from "./terminal-output.ts";
+import { LINEAR_MCP_NAME, LINEAR_MCP_URL } from "./connector-config.ts";
 
 const CONNECTOR_TIMEOUT_MS = 20 * 60 * 1000;
-const LINEAR_MCP_URL = "https://mcp.linear.app/mcp";
 const PLUGINS = {
   linear: "linear@openai-curated",
   slack: "slack@openai-curated",
@@ -79,23 +79,9 @@ async function ensurePlugin(codex: string, connector: Connector): Promise<void> 
   }
 }
 
-async function ensureLinearMcp(codex: string): Promise<void> {
-  const list = await runCommand([codex, "mcp", "list"]);
-  if (list.exitCode === 0 && /^linear\s+/m.test(list.stdout)) return;
-
-  const add = await runCommand([
-    codex,
-    "mcp",
-    "add",
-    "linear",
-    "--url",
-    LINEAR_MCP_URL,
-    "--oauth-resource",
-    LINEAR_MCP_URL,
-  ]);
-  if (add.exitCode !== 0) {
-    throw new Error(outputTail(`${add.stdout}\n${add.stderr}`) || "Could not configure Linear MCP");
-  }
+async function isLinearMcpConfigured(codex: string): Promise<boolean> {
+  const result = await runCommand([codex, "mcp", "get", LINEAR_MCP_NAME, "--json"]);
+  return result.exitCode === 0;
 }
 
 export function extractLinearOAuthDetails(output: string): {
@@ -268,8 +254,21 @@ export async function startConnectorSession(value?: string): Promise<string> {
   const codex = await resolveCliPath("codex");
   await ensurePlugin(codex, connector);
   if (connector === "linear") {
-    await ensureLinearMcp(codex);
-    spawnSession(connector, codex, ["mcp", "login", "linear"]);
+    if (await isLinearMcpConfigured(codex)) {
+      spawnSession(connector, codex, ["mcp", "login", LINEAR_MCP_NAME]);
+    } else {
+      // `mcp add` starts OAuth immediately when the server advertises it, so
+      // keep it inside the managed session instead of waiting synchronously.
+      spawnSession(connector, codex, [
+        "mcp",
+        "add",
+        LINEAR_MCP_NAME,
+        "--url",
+        LINEAR_MCP_URL,
+        "--oauth-resource",
+        LINEAR_MCP_URL,
+      ]);
+    }
   } else {
     const nonce = `rachel-connector-probe-${Date.now()}`;
     spawnSession(connector, codex, [
@@ -319,7 +318,9 @@ export async function getConnectorStatusMessage(value?: string): Promise<string>
     const installed = new RegExp(`^${plugin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+installed`, "m").test(plugins.stdout);
     if (!installed) return `${connector === "linear" ? "Linear" : "Slack"}: not installed`;
     if (connector === "linear") {
-      const row = mcp.stdout.split("\n").find((line) => /^linear\s+/.test(line));
+      const row = mcp.stdout
+        .split("\n")
+        .find((line) => line.startsWith(`${LINEAR_MCP_NAME} `));
       const connected = row ? !/not logged in/i.test(row) : false;
       return `Linear: ${connected ? "connected" : "installed, authorization required"}`;
     }
