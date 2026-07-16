@@ -5,14 +5,11 @@ import { errorMessage } from "./errors.ts";
 import { formatProviderName, normalizeProvider, type AIProvider } from "../ai/provider.ts";
 import { getProviderAuthStatus } from "../ai/auth.ts";
 import { resolveCliPath } from "../ai/cli-path.ts";
+import { cleanTerminalOutput, outputTail } from "./terminal-output.ts";
 
 const LOGIN_TIMEOUT_MS = 20 * 60 * 1000;
 const CODEX_URL_RE = /https:\/\/auth\.openai\.com\/codex\/device/;
 const CODEX_CODE_RE = /\b[A-Z0-9]{4,5}-[A-Z0-9]{5}\b/;
-const ANSI_RE = new RegExp(
-  "[\\u001B\\u009B][[\\]()#;?]*(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\\u0007|(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~])",
-  "g",
-);
 
 type LoginNotifier = (text: string) => Promise<void>;
 
@@ -32,17 +29,6 @@ let activeSession: ActiveLoginSession | null = null;
 
 export function setLoginNotifier(send: LoginNotifier): void {
   notifier = send;
-}
-
-function cleanOutput(text: string): string {
-  return text
-    .replace(ANSI_RE, "")
-    .replace(/\r/g, "")
-    .replace(/\u0008/g, "")
-    .replace(/\^D/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 async function buildCommand(provider: AIProvider): Promise<{ cmd: string; args: string[] }> {
@@ -132,7 +118,7 @@ async function handleExit(code: number | null, signal: NodeJS.Signals | null): P
 
   session.completed = true;
 
-  const tail = session.output.split("\n").slice(-8).join("\n").trim();
+  const tail = outputTail(session.output);
   const providerName = formatProviderName(session.provider);
 
   if (code === 0) {
@@ -149,9 +135,9 @@ async function handleExit(code: number | null, signal: NodeJS.Signals | null): P
 
 function attachStream(session: ActiveLoginSession, stream: NodeJS.ReadableStream): void {
   stream.on("data", (chunk: Buffer | string) => {
-    const cleaned = cleanOutput(String(chunk));
+    const cleaned = cleanTerminalOutput(String(chunk));
     if (!cleaned) return;
-    session.output = cleanOutput(`${session.output}\n${cleaned}`);
+    session.output = cleanTerminalOutput(`${session.output}\n${cleaned}`);
     flushPromptIfReady(session).catch((error) => {
       logger.error("Failed to send login prompt", { error: errorMessage(error) });
     });
@@ -231,6 +217,14 @@ export async function cancelLoginSession(): Promise<string> {
 
   session.process.kill("SIGINT");
   return `Cancelling ${formatProviderName(session.provider)} login...`;
+}
+
+export function shutdownLoginSession(): void {
+  const session = activeSession;
+  if (!session) return;
+  session.completed = true;
+  session.process.kill("SIGTERM");
+  finishSession();
 }
 
 export async function getLoginStatusMessage(providerArg?: string): Promise<string> {

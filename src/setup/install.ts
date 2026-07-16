@@ -39,7 +39,10 @@ WorkingDirectory=${projectDir}
 ExecStart=${bunPath} run src/index.ts
 Restart=on-failure
 RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
 Environment=NODE_ENV=production
+Environment=PATH=${home}/.bun/bin:${home}/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [Install]
 WantedBy=default.target

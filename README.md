@@ -183,6 +183,21 @@ If the selected CLI session expires, Rachel will tell you on Telegram and ask yo
 - `/login_code <code>` sends a one-time code back to the CLI if the provider asks for it
 - `/login_cancel` aborts an in-progress login flow
 
+## Slack and Linear connectors
+
+When Codex is the selected provider, Rachel can install and authenticate its official Slack and
+Linear plugins entirely through Telegram:
+
+- `/connector_connect linear` installs Linear and sends its OAuth link
+- `/connector_connect slack` installs Slack and verifies access with a read-only probe
+- `/connector_status [linear|slack]` reports installation and authentication state
+- `/connector_cancel` aborts an active connector login
+
+Linear's OAuth callback targets the VPS-local Codex listener. If the browser cannot open the final
+localhost page, send its complete address-bar URL with `/connector_callback <url>` and Rachel will
+relay it to the validated local callback. Connector access still follows the permissions configured
+in the connected Slack or Linear account.
+
 ## How it works
 
 Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses Claude Agent SDK or OpenAI Codex SDK with full tool access:

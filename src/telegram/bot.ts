@@ -10,6 +10,12 @@ import {
   handleLoginStatus,
 } from "./handlers/auth.ts";
 import {
+  handleConnectorCallback,
+  handleConnectorCancel,
+  handleConnectorConnect,
+  handleConnectorStatus,
+} from "./handlers/connectors.ts";
+import {
   handleMessage,
   handlePhoto,
   handleDocument,
@@ -32,6 +38,10 @@ bot.command("login", handleLogin);
 bot.command("login_code", handleLoginCode);
 bot.command("login_cancel", handleLoginCancel);
 bot.command("login_status", handleLoginStatus);
+bot.command("connector_connect", handleConnectorConnect);
+bot.command("connector_callback", handleConnectorCallback);
+bot.command("connector_cancel", handleConnectorCancel);
+bot.command("connector_status", handleConnectorStatus);
 
 bot.on("message:text", handleMessage);
 bot.on("message:photo", handlePhoto);

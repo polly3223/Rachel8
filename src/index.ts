@@ -7,6 +7,13 @@ import { setTelegramSender, setAgentExecutor, startTaskPoller, shutdownTasks } f
 import { generateResponse } from "./ai/index.ts";
 import { setShuttingDown } from "./lib/state.ts";
 import { setLoginNotifier } from "./lib/login-session.ts";
+import { shutdownLoginSession } from "./lib/login-session.ts";
+import {
+  cancelConnectorSession,
+  setConnectorNotifier,
+} from "./lib/connector-session.ts";
+
+const isWebhookMode = Bun.env["RACHEL_CLOUD"] === "true";
 
 logger.info("Rachel8 starting...", { env: env.NODE_ENV });
 logger.info("Configuration loaded", {
@@ -29,20 +36,41 @@ setLoginNotifier(async (text: string) => {
   });
 });
 
+setConnectorNotifier(async (text: string) => {
+  await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);
+});
+
 setAgentExecutor(async (prompt: string) => {
   return generateResponse(-1, prompt);
 });
 
 startTaskPoller();
 
-function shutdown(): void {
+let shutdownStarted = false;
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  logger.info(`Rachel8 shutting down (${signal})`);
   setShuttingDown();
   shutdownTasks();
-  if (!isWebhookMode) bot.stop();
+  shutdownLoginSession();
+  await cancelConnectorSession({ notify: false });
+  if (!isWebhookMode) {
+    try {
+      await bot.stop();
+    } catch (error) {
+      logger.warn("Telegram poller was not running during shutdown", {
+        error: errorMessage(error),
+      });
+    }
+  }
+  logger.info("Rachel8 shutdown complete");
+  process.exit(0);
 }
 
-process.once("SIGTERM", () => shutdown());
-process.once("SIGINT", () => shutdown());
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+process.once("SIGINT", () => void shutdown("SIGINT"));
 
 // Send startup message (debounced — skip if sent within last 30s to prevent spam on crash loops)
 const STARTUP_LOCK = "/tmp/rachel8-startup.lock";
@@ -63,7 +91,7 @@ try {
 
 if (shouldSendStartup) {
   try {
-    await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online! 🟢");
+    await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, "I'm back online!");
     await Bun.write(STARTUP_LOCK, String(Date.now()));
     logger.info("Startup message sent");
   } catch (err) {
@@ -80,8 +108,6 @@ if (shouldSendStartup) {
 //
 // Standalone instances (like the host Rachel) use traditional long polling.
 // ---------------------------------------------------------------------------
-
-const isWebhookMode = Bun.env["RACHEL_CLOUD"] === "true";
 
 if (isWebhookMode) {
   const WEBHOOK_PORT = Number(Bun.env["WEBHOOK_PORT"] || "8443");
