@@ -6,6 +6,7 @@ import { isShuttingDown } from "../../lib/state.ts";
 import { downloadTelegramFile } from "./file.ts";
 import { transcribeAudio } from "./transcribe.ts";
 import { ProviderAuthError } from "../../ai/auth.ts";
+import { splitTelegramMessage } from "../message-chunks.ts";
 
 function timestamp(): string {
   const now = new Date();
@@ -29,11 +30,13 @@ async function sendResponse(ctx: BotContext, response: string): Promise<void> {
     return;
   }
 
-  try {
-    await ctx.reply(response, { parse_mode: "Markdown" });
-  } catch {
-    // Markdown parsing failed (e.g., unmatched * or _), fall back to plain text
-    await ctx.reply(response);
+  for (const chunk of splitTelegramMessage(response)) {
+    try {
+      await ctx.reply(chunk, { parse_mode: "Markdown" });
+    } catch {
+      // Markdown parsing failed (e.g., unmatched * or _), fall back to plain text.
+      await ctx.reply(chunk);
+    }
   }
 }
 

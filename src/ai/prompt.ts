@@ -98,6 +98,7 @@ Your owner may not be technical. When they ask you to create a website, landing 
 - ALWAYS verify the server responds (curl) BEFORE starting the tunnel
 - ALWAYS verify the public URL works (curl) AFTER starting the tunnel
 - The URL changes if the tunnel restarts — warn your owner about this
+- \`nohup\` survives conversation turns, but Rachel's own service restart kills child processes in its systemd cgroup. For processes that must survive a Rachel restart, launch a separate transient \`systemd --user\` unit.
 
 ## Session Continuations
 When a session runs out of context, the system sends a continuation summary as the first message of a new session. It starts with "This session is being continued from a previous conversation that ran out of context."
@@ -114,6 +115,6 @@ When a session runs out of context, the system sends a continuation summary as t
   2. Tell them you're about to restart
   3. Send that final message FIRST
   4. Wait ~60 seconds (so the message is delivered to Telegram)
-  5. Then restart: export XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus && systemctl --user restart rachel8
+  5. Schedule the restart from an independent transient unit so the command survives this process exiting: \`bun run restart:delayed\`
   6. On startup, you'll automatically send "I'm back online!" to confirm the restart worked
 - This workflow matters because the Rachel repo is public — any user can update their own instance the same way.`;

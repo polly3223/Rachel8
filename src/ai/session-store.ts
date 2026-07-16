@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger.ts";
+import { rename } from "node:fs/promises";
 
 const SHARED_FOLDER_PATH = Bun.env["SHARED_FOLDER_PATH"];
 const SESSIONS_DIR = SHARED_FOLDER_PATH ? SHARED_FOLDER_PATH : `${import.meta.dir}/../..`;
@@ -17,10 +18,18 @@ async function readSessionRecord(path: string): Promise<Record<string, string> |
     return null;
   }
 
-  const data = await file.json();
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
+  let data: unknown;
+  try {
+    data = await file.json();
+  } catch (error) {
+    logger.warn("Ignoring unreadable session state", {
+      path,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
+
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
 
   return data as Record<string, string>;
 }
@@ -58,5 +67,7 @@ export async function saveSessionMap(
   sessions: Map<number, string>,
 ): Promise<void> {
   const filePath = getSessionFilePath(provider);
-  await Bun.write(filePath, JSON.stringify(Object.fromEntries(sessions)));
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await Bun.write(temporaryPath, JSON.stringify(Object.fromEntries(sessions)));
+  await rename(temporaryPath, filePath);
 }

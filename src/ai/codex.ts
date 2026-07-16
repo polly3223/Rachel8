@@ -7,6 +7,10 @@ import { loadSessionMap, saveSessionMap } from "./session-store.ts";
 import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
 import { env } from "../config/env.ts";
 import { LINEAR_APP_ID } from "../lib/connector-config.ts";
+import {
+  isCodexThreadUnavailableError,
+  isContextOverflowError,
+} from "./session-errors.ts";
 
 const MODEL = env.CODEX_MODEL || "gpt-5.5";
 
@@ -93,17 +97,9 @@ export async function generateCodexResponse(
     await appendToDailyLog("assistant", result);
     return result;
   } catch (error) {
-    const msg = errorMessage(error).toLowerCase();
-    const isThreadGone =
-      msg.includes("resume") ||
-      msg.includes("thread") ||
-      msg.includes("session") ||
-      msg.includes("not found");
-    const isContextOverflow =
-      msg.includes("context") ||
-      msg.includes("too many tokens") ||
-      msg.includes("prompt is too long") ||
-      msg.includes("request too large");
+    const message = errorMessage(error);
+    const isThreadGone = isCodexThreadUnavailableError(message);
+    const isContextOverflow = isContextOverflowError(message);
 
     if ((isContextOverflow || isThreadGone) && existingThreadId) {
       logger.warn(
@@ -113,14 +109,21 @@ export async function generateCodexResponse(
       sessions.delete(chatId);
       await saveSessionMap("codex", sessions);
 
-      const { result, threadId } = await runTurn(userMessage, systemPrompt);
-      sessions.set(chatId, threadId);
-      await saveSessionMap("codex", sessions);
-      const freshNotice =
-        "[Previous Codex thread was unusable — started a fresh thread. Memory files are still intact.]\n\n" +
-        result;
-      await appendToDailyLog("assistant", freshNotice);
-      return freshNotice;
+      try {
+        const { result, threadId } = await runTurn(userMessage, systemPrompt);
+        sessions.set(chatId, threadId);
+        await saveSessionMap("codex", sessions);
+        const freshNotice =
+          "[Previous Codex thread was unusable - started a fresh thread. Memory files are still intact.]\n\n" +
+          result;
+        await appendToDailyLog("assistant", freshNotice);
+        return freshNotice;
+      } catch (retryError) {
+        if (isProviderAuthFailure("codex", retryError)) {
+          throw new ProviderAuthError("codex");
+        }
+        throw retryError;
+      }
     }
 
     if (isProviderAuthFailure("codex", error)) {

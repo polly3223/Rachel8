@@ -40,8 +40,19 @@ export async function loadCoreMemory(): Promise<string> {
   }
 }
 
+export function formatZurichDate(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Zurich",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values["year"]}-${values["month"]}-${values["day"]}`;
+}
+
 function getTodayLogPath(): { path: string; date: string } {
-  const date = new Date().toISOString().split("T")[0]!;
+  const date = formatZurichDate(new Date());
   return { path: join(DAILY_LOGS_DIR, `${date}.md`), date };
 }
 

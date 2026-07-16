@@ -8,17 +8,15 @@
         "@anthropic-ai/claude-agent-sdk": "0.2.38",
         "@clack/prompts": "^1.0.0",
         "@grammyjs/auto-chat-action": "^0.1.1",
-        "@openai/codex": "0.144.3",
         "@openai/codex-sdk": "0.144.3",
-        "@types/qrcode": "^1.5.6",
         "baileys": "^7.0.0-rc.9",
         "grammy": "^1.40.0",
         "qrcode": "^1.5.4",
-        "three": "0.160.0",
         "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "latest",
+        "@types/qrcode": "^1.5.6",
       },
     },
   },
@@ -288,8 +286,6 @@
     "strtok3": ["strtok3@10.3.4", "", { "dependencies": { "@tokenizer/token": "^0.3.0" } }, "sha512-KIy5nylvC5le1OdaaoCJ07L+8iQzJHGH6pWDuzS+d07Cu7n1MZ2x26P8ZKIWfbK02+XIL8Mp4RkWeqdUCrDMfg=="],
 
     "thread-stream": ["thread-stream@3.1.0", "", { "dependencies": { "real-require": "^0.2.0" } }, "sha512-OqyPZ9u96VohAyMfJykzmivOrY2wfMSf3C5TtFJVgN+Hm6aj+voFhlK+kZEIv2FBh1X6Xp3DlnCOfEQ3B2J86A=="],
-
-    "three": ["three@0.160.0", "", {}, "sha512-DLU8lc0zNIPkM7rH5/e1Ks1Z8tWCGRq6g8mPowdDJpw1CFBJMU7UoJjC6PefXW7z//SSl0b2+GCw14LB+uDhng=="],
 
     "token-types": ["token-types@6.1.2", "", { "dependencies": { "@borewit/text-codec": "^0.2.1", "@tokenizer/token": "^0.3.0", "ieee754": "^1.2.1" } }, "sha512-dRXchy+C0IgK8WPC6xvCHFRIWYUbqqdEIKPaKo/AcTUNzwLTK6AH7RjdLWsEZcAN/TBdtfUw3PYEgPr5VPr6ww=="],
 

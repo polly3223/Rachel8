@@ -5,6 +5,7 @@ import { appendToDailyLog, buildSystemPromptWithMemory } from "../lib/memory.ts"
 import { BASE_SYSTEM_PROMPT } from "./prompt.ts";
 import { loadSessionMap, saveSessionMap } from "./session-store.ts";
 import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
+import { isContextOverflowError } from "./session-errors.ts";
 
 // Model can be overridden via env var.
 const MODEL = Bun.env["CLAUDE_MODEL"] || "claude-opus-4-6";
@@ -74,11 +75,7 @@ export async function generateClaudeResponse(
       msg.includes("session not found") ||
       msg.includes("session id");
     const isContextOverflow =
-      msg.includes("prompt is too long") ||
-      msg.includes("too many tokens") ||
-      msg.includes("context length") ||
-      msg.includes("max_tokens") ||
-      msg.includes("request too large");
+      isContextOverflowError(msg) || msg.includes("max_tokens");
 
     if ((isContextOverflow || isSessionGone) && existingSessionId) {
       logger.warn(
@@ -97,7 +94,7 @@ export async function generateClaudeResponse(
         sessions.set(chatId, sessionId);
         await saveSessionMap("claude", sessions);
         const freshNotice =
-          "[Context was too large — started fresh session. My memory files are intact so I still know everything important.]\n\n" +
+          "[Context was too large - started fresh session. My memory files are intact so I still know everything important.]\n\n" +
           result;
         await appendToDailyLog("assistant", freshNotice);
         return freshNotice;
