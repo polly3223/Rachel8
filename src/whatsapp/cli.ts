@@ -210,7 +210,7 @@ async function main() {
         return;
       }
       for (const m of messages) {
-        const time = new Date(m.timestamp * 1000).toLocaleString("en-GB", { timeZone: "Europe/Zurich" });
+        const time = new Date(m.timestamp * 1000).toLocaleString("en-GB", { timeZone: "Europe/Rome" });
         const prefix = m.fromMe ? "You" : m.from;
         console.log(`[${time}] ${prefix}: ${m.text}`);
       }

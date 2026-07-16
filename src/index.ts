@@ -12,6 +12,7 @@ import {
   cancelConnectorSession,
   setConnectorNotifier,
 } from "./lib/connector-session.ts";
+import { BOT_COMMANDS } from "./telegram/commands.ts";
 
 const isWebhookMode = Bun.env["RACHEL_CLOUD"] === "true";
 
@@ -23,6 +24,17 @@ logger.info("Configuration loaded", {
 });
 
 await initializeMemorySystem();
+
+try {
+  await bot.api.setMyCommands([...BOT_COMMANDS]);
+  logger.info("Telegram command menu synchronized", {
+    commands: BOT_COMMANDS.length,
+  });
+} catch (error) {
+  logger.warn("Could not synchronize Telegram command menu", {
+    error: errorMessage(error),
+  });
+}
 
 setTelegramSender(async (text: string) => {
   await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);

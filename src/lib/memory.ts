@@ -40,9 +40,9 @@ export async function loadCoreMemory(): Promise<string> {
   }
 }
 
-export function formatZurichDate(date: Date): string {
+export function formatLocalDate(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Zurich",
+    timeZone: "Europe/Rome",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -52,7 +52,7 @@ export function formatZurichDate(date: Date): string {
 }
 
 function getTodayLogPath(): { path: string; date: string } {
-  const date = formatZurichDate(new Date());
+  const date = formatLocalDate(new Date());
   return { path: join(DAILY_LOGS_DIR, `${date}.md`), date };
 }
 

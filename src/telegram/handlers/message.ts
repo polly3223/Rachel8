@@ -10,7 +10,7 @@ import { splitTelegramMessage } from "../message-chunks.ts";
 
 function timestamp(): string {
   const now = new Date();
-  const dt = now.toLocaleString("en-GB", { timeZone: "Europe/Zurich", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  const dt = now.toLocaleString("en-GB", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
   // Check if CET or CEST: CET=UTC+1, CEST=UTC+2
   const utcH = now.getUTCHours();
   const localH = Number(dt.split(", ")[1]?.split(":")[0] ?? "0");
