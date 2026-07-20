@@ -15,6 +15,7 @@ import {
   handleConnectorConnect,
   handleConnectorStatus,
 } from "./handlers/connectors.ts";
+import { handleEffort } from "./handlers/effort.ts";
 import {
   handleMessage,
   handlePhoto,
@@ -42,6 +43,7 @@ bot.command("connector_connect", handleConnectorConnect);
 bot.command("connector_callback", handleConnectorCallback);
 bot.command("connector_cancel", handleConnectorCancel);
 bot.command("connector_status", handleConnectorStatus);
+bot.command("effort", handleEffort);
 
 bot.on("message:text", handleMessage);
 bot.on("message:photo", handlePhoto);

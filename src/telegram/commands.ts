@@ -8,4 +8,5 @@ export const BOT_COMMANDS = [
   { command: "connector_callback", description: "Complete Linear authorization" },
   { command: "connector_cancel", description: "Cancel connector authorization" },
   { command: "connector_status", description: "Check Slack and Linear" },
+  { command: "effort", description: "View or change thinking effort" },
 ] as const;

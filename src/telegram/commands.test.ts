@@ -7,5 +7,6 @@ describe("BOT_COMMANDS", () => {
     expect(new Set(commands).size).toBe(commands.length);
     expect(commands).toContain("connector_connect");
     expect(commands).toContain("connector_status");
+    expect(commands).toContain("effort");
   });
 });

@@ -5,6 +5,7 @@
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "restart:delayed": "bun run scripts/restart.ts",
+    "effort": "bun run scripts/effort.ts",
     "setup": "bun run src/setup/wizard.ts",
     "test": "bun test"
   },

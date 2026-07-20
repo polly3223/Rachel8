@@ -11,6 +11,7 @@ import {
   isCodexThreadUnavailableError,
   isContextOverflowError,
 } from "./session-errors.ts";
+import { getReasoningEffort } from "../lib/reasoning-effort.ts";
 
 const MODEL = env.CODEX_MODEL || "gpt-5.5";
 
@@ -24,7 +25,7 @@ const codex = new Codex({
   },
 });
 
-const threadOptions: ThreadOptions = {
+const baseThreadOptions: ThreadOptions = {
   sandboxMode: "danger-full-access",
   approvalPolicy: "never",
   workingDirectory: process.cwd(),
@@ -36,6 +37,14 @@ const threadOptions: ThreadOptions = {
   ),
   ...(MODEL ? { model: MODEL } : {}),
 };
+
+async function getThreadOptions(): Promise<ThreadOptions> {
+  const modelReasoningEffort = await getReasoningEffort(
+    env.SHARED_FOLDER_PATH,
+    Bun.env["CODEX_REASONING_EFFORT"],
+  );
+  return { ...baseThreadOptions, modelReasoningEffort };
+}
 
 const sessions = await loadSessionMap("codex");
 
@@ -58,6 +67,7 @@ async function runTurn(
   systemPrompt: string,
   threadId?: string,
 ): Promise<{ result: string; threadId: string }> {
+  const threadOptions = await getThreadOptions();
   const thread = threadId
     ? codex.resumeThread(threadId, threadOptions)
     : codex.startThread(threadOptions);
