@@ -5,7 +5,16 @@ import {
   parseReasoningEffort,
   REASONING_EFFORTS,
   setReasoningEffort,
+  type ReasoningEffort,
 } from "../../lib/reasoning-effort.ts";
+
+export async function handleSetEffort(
+  ctx: BotContext,
+  effort: ReasoningEffort,
+): Promise<void> {
+  await setReasoningEffort(env.SHARED_FOLDER_PATH, effort);
+  await ctx.reply(`Thinking effort set to ${effort}. It will apply from the next turn.`);
+}
 
 export async function handleEffort(ctx: BotContext): Promise<void> {
   const requested = typeof ctx.match === "string" ? ctx.match.trim() : "";
@@ -24,6 +33,5 @@ export async function handleEffort(ctx: BotContext): Promise<void> {
     return;
   }
 
-  await setReasoningEffort(env.SHARED_FOLDER_PATH, effort);
-  await ctx.reply(`Thinking effort set to ${effort}. It will apply from the next turn.`);
+  await handleSetEffort(ctx, effort);
 }

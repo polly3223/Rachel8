@@ -1,18 +1,28 @@
-import { REASONING_EFFORTS } from "../lib/reasoning-effort.ts";
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from "../lib/reasoning-effort.ts";
+
+const EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "extra high",
+  max: "max",
+  ultra: "ultra",
+};
+
+export const EFFORT_SET_COMMANDS = REASONING_EFFORTS.map((effort) => ({
+  command: `effort_${effort}`,
+  description: `Set thinking effort to ${EFFORT_LABELS[effort]}`,
+  effort,
+}));
 
 export const BOT_COMMANDS = [
-  { command: "start", description: "Start Rachel" },
   { command: "help", description: "Explain all commands" },
-  { command: "login", description: "Sign in to an AI provider" },
-  { command: "login_code", description: "Complete Claude sign-in" },
-  { command: "login_cancel", description: "Cancel provider sign-in" },
-  { command: "login_status", description: "Check provider sign-in" },
-  { command: "connector_connect", description: "Connect Slack or Linear" },
-  { command: "connector_callback", description: "Complete Linear authorization" },
-  { command: "connector_cancel", description: "Cancel connector authorization" },
-  { command: "connector_status", description: "Check Slack and Linear" },
-  { command: "effort", description: "View or change thinking effort" },
-] as const;
+  { command: "effort", description: "Show current thinking effort" },
+  ...EFFORT_SET_COMMANDS.map(({ command, description }) => ({ command, description })),
+];
 
 export function buildHelpText(): string {
   return [
@@ -36,7 +46,9 @@ export function buildHelpText(): string {
     "",
     "Thinking effort",
     "/effort - Show the current persistent effort.",
-    "/effort <level> - Change it from the next turn until changed again.",
-    `Valid levels: ${REASONING_EFFORTS.join(", ")}`,
+    ...EFFORT_SET_COMMANDS.map(
+      ({ command, effort }) =>
+        `/${command} - Set effort to ${EFFORT_LABELS[effort]}. Applies from the next turn.`,
+    ),
   ].join("\n");
 }

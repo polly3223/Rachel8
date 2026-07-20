@@ -1,22 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { BOT_COMMANDS, buildHelpText } from "./commands.ts";
+import { REASONING_EFFORTS } from "../lib/reasoning-effort.ts";
+import { BOT_COMMANDS, EFFORT_SET_COMMANDS, buildHelpText } from "./commands.ts";
 
 describe("BOT_COMMANDS", () => {
-  test("contains every registered command without duplicates", () => {
+  test("contains only help and one-tap effort commands", () => {
     const commands = BOT_COMMANDS.map(({ command }) => command);
     expect(new Set(commands).size).toBe(commands.length);
-    expect(commands).toContain("connector_connect");
-    expect(commands).toContain("connector_status");
-    expect(commands).toContain("effort");
-    expect(commands).toContain("help");
+    expect(commands).toEqual([
+      "help",
+      "effort",
+      ...REASONING_EFFORTS.map((effort) => `effort_${effort}`),
+    ]);
+    expect(EFFORT_SET_COMMANDS.map(({ effort }) => effort)).toEqual([...REASONING_EFFORTS]);
   });
 
-  test("help documents every command and valid effort", () => {
+  test("help documents every visible command and advanced commands", () => {
     const help = buildHelpText();
     for (const { command } of BOT_COMMANDS) {
       expect(help).toContain(`/${command}`);
     }
-    expect(help).toContain("low, medium, high, xhigh, max, ultra");
+    expect(help).not.toContain("/effort <level>");
     expect(help).toContain("Model Context Protocol (MCP)");
   });
 });

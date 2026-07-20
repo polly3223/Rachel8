@@ -15,7 +15,8 @@ import {
   handleConnectorConnect,
   handleConnectorStatus,
 } from "./handlers/connectors.ts";
-import { handleEffort } from "./handlers/effort.ts";
+import { EFFORT_SET_COMMANDS } from "./commands.ts";
+import { handleEffort, handleSetEffort } from "./handlers/effort.ts";
 import { handleHelp } from "./handlers/help.ts";
 import {
   handleMessage,
@@ -46,6 +47,9 @@ bot.command("connector_callback", handleConnectorCallback);
 bot.command("connector_cancel", handleConnectorCancel);
 bot.command("connector_status", handleConnectorStatus);
 bot.command("effort", handleEffort);
+for (const { command, effort } of EFFORT_SET_COMMANDS) {
+  bot.command(command, (ctx) => handleSetEffort(ctx, effort));
+}
 
 bot.on("message:text", handleMessage);
 bot.on("message:photo", handlePhoto);
