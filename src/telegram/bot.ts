@@ -16,6 +16,7 @@ import {
   handleConnectorStatus,
 } from "./handlers/connectors.ts";
 import { handleEffort } from "./handlers/effort.ts";
+import { handleHelp } from "./handlers/help.ts";
 import {
   handleMessage,
   handlePhoto,
@@ -35,6 +36,7 @@ bot.use(authGuard);
 bot.use(autoChatAction());
 
 bot.command("start", (ctx) => ctx.reply("Hello! I'm Rachel, your personal AI assistant."));
+bot.command("help", handleHelp);
 bot.command("login", handleLogin);
 bot.command("login_code", handleLoginCode);
 bot.command("login_cancel", handleLoginCancel);
