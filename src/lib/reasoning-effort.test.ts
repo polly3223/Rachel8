@@ -18,7 +18,9 @@ describe("reasoning effort", () => {
   test("normalizes supported values", () => {
     expect(parseReasoningEffort("HIGH")).toBe("high");
     expect(parseReasoningEffort("extra high")).toBe("xhigh");
-    expect(parseReasoningEffort("maximum")).toBeNull();
+    expect(parseReasoningEffort("max")).toBe("max");
+    expect(parseReasoningEffort("ultra")).toBe("ultra");
+    expect(parseReasoningEffort("minimal")).toBeNull();
   });
 
   test("defaults to medium and persists changes", async () => {

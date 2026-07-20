@@ -16,7 +16,7 @@ describe("BOT_COMMANDS", () => {
     for (const { command } of BOT_COMMANDS) {
       expect(help).toContain(`/${command}`);
     }
-    expect(help).toContain("minimal, low, medium, high, xhigh");
+    expect(help).toContain("low, medium, high, xhigh, max, ultra");
     expect(help).toContain("Model Context Protocol (MCP)");
   });
 });

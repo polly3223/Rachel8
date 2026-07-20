@@ -11,19 +11,25 @@ import {
   isCodexThreadUnavailableError,
   isContextOverflowError,
 } from "./session-errors.ts";
-import { getReasoningEffort } from "../lib/reasoning-effort.ts";
+import {
+  getReasoningEffort,
+  type ReasoningEffort,
+} from "../lib/reasoning-effort.ts";
 
-const MODEL = env.CODEX_MODEL || "gpt-5.5";
+const MODEL = env.CODEX_MODEL || "gpt-5.6-sol";
 
-const codex = new Codex({
-  config: {
-    // Linear's local MCP uses Telegram-managed OAuth. Disable only the stale
-    // ChatGPT app path so Codex cannot select it ahead of the local server.
-    apps: {
-      [LINEAR_APP_ID]: { enabled: false },
+function createCodex(reasoningEffort: ReasoningEffort): Codex {
+  return new Codex({
+    config: {
+      model_reasoning_effort: reasoningEffort,
+      // Linear's local MCP uses Telegram-managed OAuth. Disable only the stale
+      // ChatGPT app path so Codex cannot select it ahead of the local server.
+      apps: {
+        [LINEAR_APP_ID]: { enabled: false },
+      },
     },
-  },
-});
+  });
+}
 
 const baseThreadOptions: ThreadOptions = {
   sandboxMode: "danger-full-access",
@@ -37,14 +43,6 @@ const baseThreadOptions: ThreadOptions = {
   ),
   ...(MODEL ? { model: MODEL } : {}),
 };
-
-async function getThreadOptions(): Promise<ThreadOptions> {
-  const modelReasoningEffort = await getReasoningEffort(
-    env.SHARED_FOLDER_PATH,
-    Bun.env["CODEX_REASONING_EFFORT"],
-  );
-  return { ...baseThreadOptions, modelReasoningEffort };
-}
 
 const sessions = await loadSessionMap("codex");
 
@@ -67,10 +65,14 @@ async function runTurn(
   systemPrompt: string,
   threadId?: string,
 ): Promise<{ result: string; threadId: string }> {
-  const threadOptions = await getThreadOptions();
+  const reasoningEffort = await getReasoningEffort(
+    env.SHARED_FOLDER_PATH,
+    Bun.env["CODEX_REASONING_EFFORT"],
+  );
+  const codex = createCodex(reasoningEffort);
   const thread = threadId
-    ? codex.resumeThread(threadId, threadOptions)
-    : codex.startThread(threadOptions);
+    ? codex.resumeThread(threadId, baseThreadOptions)
+    : codex.startThread(baseThreadOptions);
 
   const turn = await thread.run(buildCodexPrompt(systemPrompt, userMessage));
   const currentThreadId = thread.id;

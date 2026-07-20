@@ -2,11 +2,12 @@ import { mkdir, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export const REASONING_EFFORTS = [
-  "minimal",
   "low",
   "medium",
   "high",
   "xhigh",
+  "max",
+  "ultra",
 ] as const;
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];

@@ -24,5 +24,5 @@ if (action === "set" && requested) {
   process.exit(0);
 }
 
-console.error("Usage: bun run effort [get | set <minimal|low|medium|high|xhigh>]");
+console.error("Usage: bun run effort [get | set <low|medium|high|xhigh|max|ultra>]");
 process.exit(1);

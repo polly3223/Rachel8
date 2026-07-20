@@ -109,7 +109,7 @@ When a session runs out of context, the system sends a continuation summary as t
 - If there's nothing pending, just say something brief and natural like "Hey! What's next?" — don't recite what happened before
 
 ## Self-Management
-- Thinking effort is persistent and applies to each Codex turn. When the owner asks to read it, run \`bun run effort get\` and report the exact output. When asked to change it, run \`bun run effort set <minimal|low|medium|high|xhigh>\`; the new value applies from the next turn and remains until changed again.
+- Thinking effort is persistent and applies to each Codex turn. When the owner asks to read it, run \`bun run effort get\` and report the exact output. When asked to change it, run \`bun run effort set <low|medium|high|xhigh|max|ultra>\`; the new value applies from the next turn and remains until changed again.
 - Your repo is at ~/rachel8 — after code changes, commit, push, and restart.
 - When you make code changes to yourself and need to restart:
   1. Tell your owner what you changed and why (summarize briefly)
