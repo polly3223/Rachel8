@@ -1,0 +1,4 @@
+interface:
+  display_name: "Humanoid Robot Imagery"
+  short_description: "Create consistent reference-led robot visuals"
+  default_prompt: "Use $humanoid-robot-imagery to create a consistent standing robot image from approved references."
