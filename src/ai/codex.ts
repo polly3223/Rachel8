@@ -88,10 +88,10 @@ async function runTurn(
 }
 
 export async function generateCodexResponse(
-  chatId: number,
+  conversationKey: string,
   userMessage: string,
 ): Promise<string> {
-  const existingThreadId = sessions.get(chatId);
+  const existingThreadId = sessions.get(conversationKey);
 
   await assertProviderAuthenticated("codex");
 
@@ -104,7 +104,7 @@ export async function generateCodexResponse(
       systemPrompt,
       existingThreadId,
     );
-    sessions.set(chatId, threadId);
+    sessions.set(conversationKey, threadId);
     await saveSessionMap("codex", sessions);
     await appendToDailyLog("assistant", result);
     return result;
@@ -115,15 +115,15 @@ export async function generateCodexResponse(
 
     if ((isContextOverflow || isThreadGone) && existingThreadId) {
       logger.warn(
-        `Codex thread ${existingThreadId} is no longer usable for chat ${chatId}, starting fresh thread`,
+        `Codex thread ${existingThreadId} is no longer usable for conversation ${conversationKey}, starting fresh thread`,
       );
 
-      sessions.delete(chatId);
+      sessions.delete(conversationKey);
       await saveSessionMap("codex", sessions);
 
       try {
         const { result, threadId } = await runTurn(userMessage, systemPrompt);
-        sessions.set(chatId, threadId);
+        sessions.set(conversationKey, threadId);
         await saveSessionMap("codex", sessions);
         const freshNotice =
           "[Previous Codex thread was unusable - started a fresh thread. Memory files are still intact.]\n\n" +

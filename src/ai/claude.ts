@@ -45,10 +45,10 @@ async function runQuery(
 }
 
 export async function generateClaudeResponse(
-  chatId: number,
+  conversationKey: string,
   userMessage: string,
 ): Promise<string> {
-  const existingSessionId = sessions.get(chatId);
+  const existingSessionId = sessions.get(conversationKey);
 
   await assertProviderAuthenticated("claudecode");
 
@@ -64,7 +64,7 @@ export async function generateClaudeResponse(
       systemPrompt,
       existingSessionId,
     );
-    sessions.set(chatId, sessionId);
+    sessions.set(conversationKey, sessionId);
     await saveSessionMap("claude", sessions);
     await appendToDailyLog("assistant", result);
     return result;
@@ -79,11 +79,11 @@ export async function generateClaudeResponse(
 
     if ((isContextOverflow || isSessionGone) && existingSessionId) {
       logger.warn(
-        `Session ${existingSessionId} context overflow for chat ${chatId}, starting fresh session`,
+        `Session ${existingSessionId} context overflow for conversation ${conversationKey}, starting fresh session`,
       );
 
       // Clear the old session and retry with a fresh one
-      sessions.delete(chatId);
+      sessions.delete(conversationKey);
       await saveSessionMap("claude", sessions);
 
       try {
@@ -91,7 +91,7 @@ export async function generateClaudeResponse(
           userMessage,
           systemPrompt,
         );
-        sessions.set(chatId, sessionId);
+        sessions.set(conversationKey, sessionId);
         await saveSessionMap("claude", sessions);
         const freshNotice =
           "[Context was too large - started fresh session. My memory files are intact so I still know everything important.]\n\n" +

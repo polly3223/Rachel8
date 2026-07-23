@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { env } from "../config/env.ts";
 import { logger } from "./logger.ts";
 import { errorMessage } from "./errors.ts";
+import { parseAgentTaskContext } from "./task-context.ts";
 
 const MEMORY_DIR = join(env.SHARED_FOLDER_PATH, "rachel-memory");
 const DB_PATH = join(MEMORY_DIR, "tasks.db");
@@ -102,7 +103,9 @@ function getNextCronRun(pattern: string, after: number = Date.now()): number {
 }
 
 let sendTelegramMessage: ((text: string) => Promise<void>) | null = null;
-let agentExecutor: ((prompt: string) => Promise<string>) | null = null;
+let agentExecutor:
+  | ((prompt: string, context: string) => Promise<string>)
+  | null = null;
 
 export function setTelegramSender(
   sender: (text: string) => Promise<void>,
@@ -111,7 +114,7 @@ export function setTelegramSender(
 }
 
 export function setAgentExecutor(
-  executor: (prompt: string) => Promise<string>,
+  executor: (prompt: string, context: string) => Promise<string>,
 ): void {
   agentExecutor = executor;
 }
@@ -170,9 +173,10 @@ async function executeTask(task: TaskRow): Promise<void> {
       if (agentExecutor && sendTelegramMessage) {
         try {
           logger.info(`Agent task starting: ${task.name}`);
-          const result = await agentExecutor(parsed.prompt);
+          const context = parseAgentTaskContext(parsed.context);
+          const result = await agentExecutor(parsed.prompt, context);
           await sendTelegramMessage(result);
-          logger.info(`Agent task completed: ${task.name}`);
+          logger.info(`Agent task completed: ${task.name}`, { context });
         } catch (error) {
           logger.error(`Agent task failed: ${task.name}`, {
             error: errorMessage(error),

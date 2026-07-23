@@ -12,6 +12,7 @@ import {
   cancelConnectorSession,
   setConnectorNotifier,
 } from "./lib/connector-session.ts";
+import { DEFAULT_AGENT_TASK_CONTEXT } from "./lib/task-context.ts";
 import { BOT_COMMANDS } from "./telegram/commands.ts";
 
 const isWebhookMode = Bun.env["RACHEL_CLOUD"] === "true";
@@ -52,8 +53,10 @@ setConnectorNotifier(async (text: string) => {
   await bot.api.sendMessage(env.OWNER_TELEGRAM_USER_ID, text);
 });
 
-setAgentExecutor(async (prompt: string) => {
-  return generateResponse(-1, prompt);
+setAgentExecutor(async (prompt: string, context: string) => {
+  const conversationKey =
+    context === DEFAULT_AGENT_TASK_CONTEXT ? -1 : `scheduled:${context}`;
+  return generateResponse(conversationKey, prompt);
 });
 
 startTaskPoller();

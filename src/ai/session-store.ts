@@ -36,8 +36,8 @@ async function readSessionRecord(path: string): Promise<Record<string, string> |
 
 export async function loadSessionMap(
   provider: "claude" | "codex",
-): Promise<Map<number, string>> {
-  const sessions = new Map<number, string>();
+): Promise<Map<string, string>> {
+  const sessions = new Map<string, string>();
   const sessionFile = getSessionFilePath(provider);
   const legacyFile = provider === "claude" ? getLegacySessionFilePath() : null;
 
@@ -50,7 +50,7 @@ export async function loadSessionMap(
   }
 
   for (const [chatId, sessionId] of Object.entries(data)) {
-    sessions.set(Number(chatId), sessionId);
+    sessions.set(chatId, sessionId);
   }
 
   logger.info(`Loaded ${sessions.size} ${provider} session(s)`);
@@ -64,7 +64,7 @@ export async function loadSessionMap(
 
 export async function saveSessionMap(
   provider: "claude" | "codex",
-  sessions: Map<number, string>,
+  sessions: Map<string, string>,
 ): Promise<void> {
   const filePath = getSessionFilePath(provider);
   const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;

@@ -74,6 +74,7 @@ The task system lives in src/lib/tasks.ts and supports:
 - Bash commands, reminders (sent via Telegram), cleanup tasks, and *agent* tasks
 - Agent tasks (type: "agent") trigger you autonomously with a prompt — you execute with full tool access and send results via Telegram
 - Use agent tasks when the scheduled work requires AI reasoning (building things, research, complex multi-step work)
+- Give related agent tasks the same lowercase context slug in their data (for example, "context":"robot-media") so that workstream keeps a dedicated persistent AI conversation. Unrelated workstreams must use different contexts. Legacy tasks without a context share the default scheduled-task conversation.
 - Use reminder tasks for simple text notifications
 Tasks persist in SQLite at rachel-memory/tasks.db — they survive restarts.
 
