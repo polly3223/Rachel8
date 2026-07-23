@@ -3,7 +3,13 @@ import { env } from "./config/env.ts";
 import { logger } from "./lib/logger.ts";
 import { errorMessage } from "./lib/errors.ts";
 import { initializeMemorySystem } from "./lib/memory.ts";
-import { setTelegramSender, setAgentExecutor, startTaskPoller, shutdownTasks } from "./lib/tasks.ts";
+import {
+  setTelegramSender,
+  setAgentExecutor,
+  setAgentCompletionIntegrator,
+  startTaskPoller,
+  shutdownTasks,
+} from "./lib/tasks.ts";
 import { generateResponse } from "./ai/index.ts";
 import { setShuttingDown } from "./lib/state.ts";
 import { setLoginNotifier } from "./lib/login-session.ts";
@@ -13,6 +19,7 @@ import {
   setConnectorNotifier,
 } from "./lib/connector-session.ts";
 import { DEFAULT_AGENT_TASK_CONTEXT } from "./lib/task-context.ts";
+import { buildAgentCompletionPrompt } from "./lib/agent-completion.ts";
 import { BOT_COMMANDS } from "./telegram/commands.ts";
 
 const isWebhookMode = Bun.env["RACHEL_CLOUD"] === "true";
@@ -57,6 +64,13 @@ setAgentExecutor(async (prompt: string, context: string) => {
   const conversationKey =
     context === DEFAULT_AGENT_TASK_CONTEXT ? -1 : `scheduled:${context}`;
   return generateResponse(conversationKey, prompt);
+});
+
+setAgentCompletionIntegrator(async (completion) => {
+  return generateResponse(
+    env.OWNER_TELEGRAM_USER_ID,
+    buildAgentCompletionPrompt(completion),
+  );
 });
 
 startTaskPoller();

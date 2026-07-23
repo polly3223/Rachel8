@@ -14,7 +14,11 @@ import { join } from "node:path";
 import { env } from "../config/env.ts";
 import { logger } from "./logger.ts";
 import { errorMessage } from "./errors.ts";
-import { parseAgentTaskContext } from "./task-context.ts";
+import {
+  DEFAULT_AGENT_TASK_CONTEXT,
+  parseAgentTaskContext,
+} from "./task-context.ts";
+import type { AgentCompletion } from "./agent-completion.ts";
 
 const MEMORY_DIR = join(env.SHARED_FOLDER_PATH, "rachel-memory");
 const DB_PATH = join(MEMORY_DIR, "tasks.db");
@@ -106,6 +110,9 @@ let sendTelegramMessage: ((text: string) => Promise<void>) | null = null;
 let agentExecutor:
   | ((prompt: string, context: string) => Promise<string>)
   | null = null;
+let agentCompletionIntegrator:
+  | ((completion: AgentCompletion) => Promise<string>)
+  | null = null;
 
 export function setTelegramSender(
   sender: (text: string) => Promise<void>,
@@ -117,6 +124,37 @@ export function setAgentExecutor(
   executor: (prompt: string, context: string) => Promise<string>,
 ): void {
   agentExecutor = executor;
+}
+
+export function setAgentCompletionIntegrator(
+  integrator: (completion: AgentCompletion) => Promise<string>,
+): void {
+  agentCompletionIntegrator = integrator;
+}
+
+async function notifyAgentCompletion(
+  completion: AgentCompletion,
+): Promise<void> {
+  if (!sendTelegramMessage) return;
+
+  let message = completion.result;
+  if (agentCompletionIntegrator) {
+    try {
+      message = await agentCompletionIntegrator(completion);
+      logger.info("Agent task result integrated into owner conversation", {
+        taskName: completion.taskName,
+        context: completion.context,
+      });
+    } catch (error) {
+      logger.error("Could not integrate agent result into owner conversation", {
+        taskName: completion.taskName,
+        context: completion.context,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  await sendTelegramMessage(message);
 }
 
 interface TaskRow {
@@ -171,19 +209,51 @@ async function executeTask(task: TaskRow): Promise<void> {
 
     case "agent": {
       if (agentExecutor && sendTelegramMessage) {
+        let context: string;
         try {
           logger.info(`Agent task starting: ${task.name}`);
-          const context = parseAgentTaskContext(parsed.context);
+          context = parseAgentTaskContext(parsed.context);
           const result = await agentExecutor(parsed.prompt, context);
-          await sendTelegramMessage(result);
+          try {
+            await notifyAgentCompletion({
+              taskName: task.name,
+              context,
+              status: "completed",
+              result,
+            });
+          } catch (error) {
+            logger.error(
+              `Could not notify for completed agent task: ${task.name}`,
+              { error: errorMessage(error) },
+            );
+          }
           logger.info(`Agent task completed: ${task.name}`, { context });
         } catch (error) {
+          context = (() => {
+            try {
+              return parseAgentTaskContext(parsed.context);
+            } catch {
+              return DEFAULT_AGENT_TASK_CONTEXT;
+            }
+          })();
+          const failureMessage =
+            `Agent task "${task.name}" failed: ${errorMessage(error)}`;
           logger.error(`Agent task failed: ${task.name}`, {
             error: errorMessage(error),
           });
-          await sendTelegramMessage(
-            `Agent task "${task.name}" failed: ${errorMessage(error)}`,
-          );
+          try {
+            await notifyAgentCompletion({
+              taskName: task.name,
+              context,
+              status: "failed",
+              result: failureMessage,
+            });
+          } catch (notificationError) {
+            logger.error(
+              `Could not notify for failed agent task: ${task.name}`,
+              { error: errorMessage(notificationError) },
+            );
+          }
         }
       } else {
         logger.warn("Cannot run agent task — executor or Telegram sender not configured");
