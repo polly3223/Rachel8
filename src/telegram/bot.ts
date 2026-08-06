@@ -18,6 +18,7 @@ import {
 import { EFFORT_SET_COMMANDS } from "./commands.ts";
 import { handleEffort, handleSetEffort } from "./handlers/effort.ts";
 import { handleHelp } from "./handlers/help.ts";
+import { handleContextRefresh } from "./handlers/context-refresh.ts";
 import {
   handleMessage,
   handlePhoto,
@@ -47,6 +48,7 @@ bot.command("connector_callback", handleConnectorCallback);
 bot.command("connector_cancel", handleConnectorCancel);
 bot.command("connector_status", handleConnectorStatus);
 bot.command("effort", handleEffort);
+bot.command("refresh", handleContextRefresh);
 for (const { command, effort } of EFFORT_SET_COMMANDS) {
   bot.command(command, (ctx) => handleSetEffort(ctx, effort));
 }

@@ -12,6 +12,13 @@ const MODEL = Bun.env["CLAUDE_MODEL"] || "claude-opus-4-6";
 
 const sessions = await loadSessionMap("claude");
 
+export async function resetClaudeConversation(
+  conversationKey: string,
+): Promise<void> {
+  sessions.delete(conversationKey);
+  await saveSessionMap("claude", sessions);
+}
+
 async function runQuery(
   userMessage: string,
   systemPrompt: string,

@@ -46,6 +46,13 @@ const baseThreadOptions: ThreadOptions = {
 
 const sessions = await loadSessionMap("codex");
 
+export async function resetCodexConversation(
+  conversationKey: string,
+): Promise<void> {
+  sessions.delete(conversationKey);
+  await saveSessionMap("codex", sessions);
+}
+
 function buildCodexPrompt(systemPrompt: string, userMessage: string): string {
   return [
     "Follow the operating instructions below for this turn.",

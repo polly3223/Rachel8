@@ -1,0 +1,4 @@
+interface:
+  display_name: "Context Refresh"
+  short_description: "Save a handoff and start a clean session"
+  default_prompt: "Use $context-refresh to preserve the active work and prepare a clean session handoff."

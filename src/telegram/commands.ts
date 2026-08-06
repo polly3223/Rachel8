@@ -20,6 +20,7 @@ export const EFFORT_SET_COMMANDS = REASONING_EFFORTS.map((effort) => ({
 
 export const BOT_COMMANDS = [
   { command: "help", description: "Explain all commands" },
+  { command: "refresh", description: "Save context and start a fresh thread" },
   { command: "effort", description: "Show current thinking effort" },
   ...EFFORT_SET_COMMANDS.map(({ command, description }) => ({ command, description })),
 ];
@@ -30,6 +31,7 @@ export function buildHelpText(): string {
     "",
     "/start - Start Rachel.",
     "/help - Show this guide.",
+    "/refresh - Save the active work, start a fresh AI thread, and load the handoff.",
     "",
     "AI provider login",
     "/login [codex|claudecode] - Sign in. Without an argument, uses the configured provider.",

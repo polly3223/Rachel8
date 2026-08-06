@@ -3,11 +3,12 @@ import { REASONING_EFFORTS } from "../lib/reasoning-effort.ts";
 import { BOT_COMMANDS, EFFORT_SET_COMMANDS, buildHelpText } from "./commands.ts";
 
 describe("BOT_COMMANDS", () => {
-  test("contains only help and one-tap effort commands", () => {
+  test("contains the core commands and one-tap effort commands", () => {
     const commands = BOT_COMMANDS.map(({ command }) => command);
     expect(new Set(commands).size).toBe(commands.length);
     expect(commands).toEqual([
       "help",
+      "refresh",
       "effort",
       ...REASONING_EFFORTS.map((effort) => `effort_${effort}`),
     ]);
