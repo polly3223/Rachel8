@@ -16,7 +16,7 @@ import {
   type ReasoningEffort,
 } from "../lib/reasoning-effort.ts";
 
-const MODEL = env.CODEX_MODEL || "gpt-5.6-sol";
+const MODEL = env.CODEX_MODEL || "gpt-6-astra";
 
 function createCodex(reasoningEffort: ReasoningEffort): Codex {
   return new Codex({
