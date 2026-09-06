@@ -13,7 +13,7 @@ To build powerful frontend claude.ai artifacts, follow these steps:
 4. Display artifact to user
 5. (Optional) Test the artifact
 
-**Stack**: React 18 + TypeScript + Vite + Parcel (bundling) + Tailwind CSS + shadcn/ui
+**Stack**: Current React + TypeScript + Vite + Tailwind CSS + shadcn/ui, managed with Bun
 
 ## Design & Style Guidelines
 
@@ -31,12 +31,10 @@ cd <project-name>
 
 This creates a fully configured project with:
 - ✅ React + TypeScript (via Vite)
-- ✅ Tailwind CSS 3.4.1 with shadcn/ui theming system
+- ✅ Current Tailwind CSS with shadcn/ui theming
 - ✅ Path aliases (`@/`) configured
-- ✅ 40+ shadcn/ui components pre-installed
-- ✅ All Radix UI dependencies included
-- ✅ Parcel configured for bundling (via .parcelrc)
-- ✅ Node 18+ compatibility (auto-detects and pins Vite version)
+- ✅ Button component and Radix base; add only needed components with `bun x --bun shadcn@latest add <component>`
+- ✅ Bun for package installation and scripts
 
 ### Step 2: Develop Your Artifact
 
@@ -54,10 +52,9 @@ This creates `bundle.html` - a self-contained artifact with all JavaScript, CSS,
 **Requirements**: Your project must have an `index.html` in the root directory.
 
 **What the script does**:
-- Installs bundling dependencies (parcel, @parcel/config-default, parcel-resolver-tspaths, html-inline)
-- Creates `.parcelrc` config with path alias support
-- Builds with Parcel (no source maps)
-- Inlines all assets into single HTML using html-inline
+- Adds vite-plugin-singlefile and builds with the project’s Vite configuration
+- Inlines bundled JavaScript, CSS and imported assets into one HTML file
+- Keep external URLs intentional; import local assets rather than using public-folder paths
 
 ### Step 4: Share Artifact with User
 

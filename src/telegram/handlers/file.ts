@@ -19,13 +19,15 @@ async function ensureDownloadsDir(): Promise<void> {
 }
 
 export async function downloadTelegramFile(
-  ctx: BotContext,
+  ctx: Pick<BotContext, "api">,
   fileId: string,
   fileName: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   await ensureDownloadsDir();
 
-  const file = await ctx.api.getFile(fileId);
+  // grammY types its compatible AbortSignal through an older DOM shim.
+  const file = await ctx.api.getFile(fileId, signal as Parameters<typeof ctx.api.getFile>[1]);
   const filePath = file.file_path;
 
   if (!filePath) {
@@ -33,7 +35,10 @@ export async function downloadTelegramFile(
   }
 
   const url = `https://api.telegram.org/file/bot${ctx.api.token}/${filePath}`;
-  const response = await fetch(url);
+  const timeout = AbortSignal.timeout(60_000);
+  const response = await fetch(url, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to download file: ${response.statusText}`);
@@ -45,7 +50,7 @@ export async function downloadTelegramFile(
     DOWNLOADS_DIR,
     `${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeName}`,
   );
-  await writeFile(localPath, Buffer.from(buffer));
+  await writeFile(localPath, Buffer.from(buffer), { mode: 0o600 });
 
   logger.info("File downloaded from Telegram", {
     fileName,

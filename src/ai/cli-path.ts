@@ -1,13 +1,13 @@
 import type { AIProvider } from "./provider.ts";
 
-const HOME = process.env["HOME"] ?? "";
+const userDirectory = process.env["HOME"] ?? "";
 
 function candidatePaths(provider: AIProvider): string[] {
   if (provider === "claudecode") {
     return [
       Bun.which("claude") ?? "",
-      `${HOME}/.local/bin/claude`,
-      `${HOME}/.bun/bin/claude`,
+      `${userDirectory}/.local/bin/claude`,
+      `${userDirectory}/.bun/bin/claude`,
       "/usr/local/bin/claude",
       "/opt/homebrew/bin/claude",
       "/home/linuxbrew/.linuxbrew/bin/claude",
@@ -15,9 +15,10 @@ function candidatePaths(provider: AIProvider): string[] {
   }
 
   return [
+    `${import.meta.dir}/../../node_modules/.bin/codex`,
     Bun.which("codex") ?? "",
-    `${HOME}/.local/bin/codex`,
-    `${HOME}/.bun/bin/codex`,
+    `${userDirectory}/.local/bin/codex`,
+    `${userDirectory}/.bun/bin/codex`,
     "/home/linuxbrew/.linuxbrew/bin/codex",
     "/usr/local/bin/codex",
     "/opt/homebrew/bin/codex",

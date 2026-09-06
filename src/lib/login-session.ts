@@ -36,7 +36,10 @@ async function buildCommand(provider: AIProvider): Promise<{ cmd: string; args: 
     const claude = await resolveCliPath("claudecode");
     return {
       cmd: "script",
-      args: ["-q", "/dev/null", "zsh", "-lc", `${claude} setup-token`],
+      args:
+        process.platform === "darwin"
+          ? ["-q", "/dev/null", claude, "setup-token"]
+          : ["-q", "-c", `'${claude.replace(/'/g, "'\\''")}' setup-token`, "/dev/null"],
     };
   }
 
@@ -186,7 +189,9 @@ export async function startLoginSession(providerArg?: string): Promise<string> {
   child.on("error", async (error) => {
     logger.error("Login session process error", { error: errorMessage(error) });
     if (activeSession?.completed) return;
-    await notify(`${formatProviderName(provider)} login failed to start.\n\n${errorMessage(error)}`);
+    await notify(
+      `${formatProviderName(provider)} login failed to start.\n\n${errorMessage(error)}`,
+    );
     finishSession();
   });
 

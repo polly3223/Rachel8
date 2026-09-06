@@ -1,67 +1,73 @@
-/**
- * Schedule tasks from the command line.
- * The running Rachel8 process polls the DB every 30s and picks them up.
- * No restart needed!
- *
- * Usage:
- *   bun run scripts/schedule.ts add <name> <type> <data-json> [--cron "pattern"] [--delay ms]
- *   bun run scripts/schedule.ts remove <name>
- *   bun run scripts/schedule.ts list
- */
-
-import { addTask, removeTask, listTasks, shutdownTasks } from "../src/lib/tasks.ts";
+import { addTask, removeTask, listTasks } from "../src/lib/tasks.ts";
+import { getStore } from "../src/ai/session-store.ts";
+import type { TaskType } from "../src/lib/work-store.ts";
+import { redactSecrets } from "../src/lib/memory.ts";
 
 const [action, ...args] = process.argv.slice(2);
-
+const flag = (name: string) => {
+  const i = args.indexOf(name);
+  if (i < 0) return undefined;
+  const value = args[i + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${name} needs a value`);
+  return value;
+};
 switch (action) {
   case "add": {
-    const name = args[0];
-    const type = args[1] as "bash" | "reminder" | "cleanup";
-    const dataJson = args[2];
-
-    if (!name || !type || !dataJson) {
-      console.error('Usage: bun run scripts/schedule.ts add <name> <type> \'{"key":"val"}\' [--cron "* * * * *"] [--delay 5000]');
-      process.exit(1);
-    }
-
-    const data = JSON.parse(dataJson);
-    const cronIdx = args.indexOf("--cron");
-    const delayIdx = args.indexOf("--delay");
-    const cron = cronIdx >= 0 ? args[cronIdx + 1] : undefined;
-    const delayMs = delayIdx >= 0 ? Number(args[delayIdx + 1]) : undefined;
-
-    addTask(name, type, data, { cron, delayMs });
-    console.log(`Task "${name}" added. The running process will pick it up within 30s.`);
+    const [name, type, data] = args;
+    if (!name || !type || !data)
+      throw new Error(
+        "Usage: add <name> <type> <data-json> [--cron pattern] [--timezone Europe/Rome] [--delay ms]",
+      );
+    const task = addTask(name, type as TaskType, JSON.parse(data), {
+      cron: flag("--cron"),
+      timezone: flag("--timezone"),
+      delayMs: flag("--delay") === undefined ? undefined : Number(flag("--delay")),
+    });
+    console.log(
+      JSON.stringify({
+        ...task,
+        data: undefined,
+        next: new Date(task.next_run).toLocaleString("en-GB", { timeZone: task.timezone }),
+        timezone: task.timezone,
+      }),
+    );
     break;
   }
-
-  case "remove": {
-    const name = args[0];
-    if (!name) {
-      console.error("Usage: bun run scripts/schedule.ts remove <name>");
-      process.exit(1);
-    }
-    removeTask(name);
-    console.log(`Task "${name}" removed.`);
+  case "remove":
+    if (!args[0]) throw new Error("Task name required");
+    removeTask(args[0]);
+    console.log("Schedule and its queued runs cancelled.");
+    break;
+  case "list":
+    console.log(
+      JSON.stringify(
+        listTasks().map(({ data: _, ...task }) => task),
+        null,
+        2,
+      ),
+    );
+    break;
+  case "runs":
+    console.log(
+      JSON.stringify(
+        getStore()
+          .recent(20)
+          .map(({ body: _, ...run }) => run),
+        null,
+        2,
+      ),
+    );
+    break;
+  case "checkpoint": {
+    const id = Number(args[0]);
+    if (!Number.isSafeInteger(id) || !getStore().get(id)) throw new Error("Valid work ID required");
+    const text = args.slice(1).join(" ");
+    if (!text || text.length > 16000)
+      throw new Error("Provide a concise checkpoint (at most 16000 characters)");
+    getStore().db.run("UPDATE runs SET checkpoint=? WHERE id=?", [redactSecrets(text), id]);
+    console.log(`Checkpoint saved for #${id}.`);
     break;
   }
-
-  case "list": {
-    const tasks = listTasks();
-    if (tasks.length === 0) {
-      console.log("No active tasks.");
-    } else {
-      for (const t of tasks) {
-        const next = new Date(t.next_run).toISOString();
-        console.log(`  ${t.name} [${t.type}] cron=${t.cron ?? "none"} next=${next}`);
-      }
-    }
-    break;
-  }
-
   default:
-    console.error("Usage: add | remove | list");
-    process.exit(1);
+    throw new Error("Usage: add | remove | list | runs | checkpoint");
 }
-
-shutdownTasks();

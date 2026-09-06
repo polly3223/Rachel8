@@ -1,332 +1,205 @@
-/**
- * SQLite-backed task scheduler for Rachel8.
- *
- * A polling loop checks for due tasks every 30 seconds.
- * Tasks can be added via the public API or directly via SQLite.
- *
- * Task types: "bash", "reminder", "cleanup", "agent"
- */
-
-import { Database } from "bun:sqlite";
-import { $ } from "bun";
-import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { env } from "../config/env.ts";
-import { logger } from "./logger.ts";
-import { errorMessage } from "./errors.ts";
+import { getStore } from "../ai/session-store.ts";
 import {
-  DEFAULT_AGENT_TASK_CONTEXT,
-  parseAgentTaskContext,
-} from "./task-context.ts";
-import type { AgentCompletion } from "./agent-completion.ts";
+  taskData,
+  type WorkStore,
+  type Work,
+  type Task,
+  type TaskType,
+  type Output,
+} from "./work-store.ts";
+import { splitTelegramMessage } from "../telegram/message-chunks.ts";
+import { shouldSend } from "../telegram/delivery.ts";
+import { redactSecrets } from "./memory.ts";
+import { logger } from "./logger.ts";
 
-const MEMORY_DIR = join(env.SHARED_FOLDER_PATH, "rachel-memory");
-const DB_PATH = join(MEMORY_DIR, "tasks.db");
-
-if (!existsSync(MEMORY_DIR)) {
-  mkdirSync(MEMORY_DIR, { recursive: true });
+export interface Delivery {
+  chat: number;
+  text?: string;
+  path?: string;
 }
-
-const db = new Database(DB_PATH);
-db.exec("PRAGMA journal_mode = WAL");
-
-const CREATE_TASKS_TABLE = `
-  CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('bash', 'reminder', 'cleanup', 'agent')),
-    data TEXT NOT NULL DEFAULT '{}',
-    cron TEXT,
-    next_run INTEGER NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )
-`;
-
-// Migrate table if it lacks the 'agent' type constraint
-const tableInfo = db.query("SELECT sql FROM sqlite_master WHERE name = 'tasks'").get() as { sql: string } | null;
-
-if (tableInfo && !tableInfo.sql.includes("agent")) {
-  db.exec("ALTER TABLE tasks RENAME TO tasks_old");
-  db.exec(CREATE_TASKS_TABLE);
-  db.exec("INSERT INTO tasks SELECT * FROM tasks_old");
-  db.exec("DROP TABLE tasks_old");
-  logger.info("Migrated tasks table to support 'agent' type");
-} else if (!tableInfo) {
-  db.exec(CREATE_TASKS_TABLE);
+export interface WorkerHooks {
+  execute: (run: Work, signal: AbortSignal) => Promise<Output>;
+  send: (item: Delivery) => Promise<number>;
+  owner: number;
 }
-
-function parseCronField(field: string, max: number): number[] {
-  if (field === "*") return Array.from({ length: max }, (_, i) => i);
-  if (field.includes(",")) return field.split(",").map(Number);
-  if (field.includes("/")) {
-    const step = Number(field.split("/")[1]);
-    return Array.from({ length: max }, (_, i) => i).filter(i => i % step === 0);
+/** Execution and delivery have independent lifecycles. A send retry cannot rerun a tool. */
+export class WorkRunner {
+  private timer?: ReturnType<typeof setInterval>;
+  private active = new Map<number, AbortController>();
+  private delivering = false;
+  private stopped = false;
+  constructor(
+    readonly store: WorkStore,
+    readonly hooks: WorkerHooks,
+  ) {}
+  start(): void {
+    this.store.recover();
+    this.tick();
+    this.timer = setInterval(() => this.tick(), 1000);
   }
-  return [Number(field)];
-}
-
-function getNextCronRun(pattern: string, after: number = Date.now()): number {
-  const parts = pattern.split(" ");
-  const minPart = parts[0] ?? "*";
-  const hourPart = parts[1] ?? "*";
-  const domPart = parts[2] ?? "*";
-  const monPart = parts[3] ?? "*";
-  const dowPart = parts[4] ?? "*";
-
-  const minutes = parseCronField(minPart, 60);
-  const hours = parseCronField(hourPart, 24);
-  const doms = parseCronField(domPart, 32).map(d => d || 1);
-  const months = parseCronField(monPart, 13).map(m => m || 1);
-  const dows = parseCronField(dowPart, 7);
-
-  const start = new Date(after + 60000);
-  start.setUTCSeconds(0, 0);
-
-  const MAX_MINUTES_TO_SEARCH = 366 * 24 * 60;
-  for (let i = 0; i < MAX_MINUTES_TO_SEARCH; i++) {
-    const candidate = new Date(start.getTime() + i * 60000);
-    const m = candidate.getUTCMinutes();
-    const h = candidate.getUTCHours();
-    const dom = candidate.getUTCDate();
-    const mon = candidate.getUTCMonth() + 1;
-    const dow = candidate.getUTCDay();
-
-    if (
-      minutes.includes(m) &&
-      hours.includes(h) &&
-      (domPart === "*" || doms.includes(dom)) &&
-      (monPart === "*" || months.includes(mon)) &&
-      (dowPart === "*" || dows.includes(dow))
-    ) {
-      return candidate.getTime();
+  tick(): void {
+    if (this.stopped) return;
+    this.store.due();
+    // Reserve foreground capacity even while two unrelated background jobs are running.
+    for (const kind of ["telegram", "task"] as const) {
+      let count = [...this.active.keys()].filter((id) => this.store.get(id)?.kind === kind).length;
+      while (count < 2) {
+        const run = this.store.claim(kind);
+        if (!run) break;
+        const abort = new AbortController();
+        this.active.set(run.id, abort);
+        count++;
+        void this.hooks
+          .execute(run, abort.signal)
+          .then(
+            (output) => this.store.finish(run.id, "succeeded", output),
+            (error) =>
+              this.store.finish(
+                run.id,
+                this.stopped ? "interrupted" : abort.signal.aborted ? "cancelled" : "failed",
+                {
+                  text: this.stopped
+                    ? `Work #${run.id} was interrupted by a restart. Its checkpoint is saved; use /resume ${run.id} to recover it.`
+                    : abort.signal.aborted
+                      ? `Stopped work #${run.id}.`
+                      : `Work #${run.id} failed: ${redactSecrets(String(error))}`,
+                },
+              ),
+          )
+          .catch((error) =>
+            logger.error("Cannot persist work result", { runId: run.id, error: String(error) }),
+          )
+          .finally(() => this.active.delete(run.id));
+      }
     }
+    if (!this.delivering) void this.deliver();
   }
-
-  return after + 3600000;
-}
-
-let sendTelegramMessage: ((text: string) => Promise<void>) | null = null;
-let agentExecutor:
-  | ((prompt: string, context: string) => Promise<string>)
-  | null = null;
-let agentCompletionIntegrator:
-  | ((completion: AgentCompletion) => Promise<string>)
-  | null = null;
-
-export function setTelegramSender(
-  sender: (text: string) => Promise<void>,
-): void {
-  sendTelegramMessage = sender;
-}
-
-export function setAgentExecutor(
-  executor: (prompt: string, context: string) => Promise<string>,
-): void {
-  agentExecutor = executor;
-}
-
-export function setAgentCompletionIntegrator(
-  integrator: (completion: AgentCompletion) => Promise<string>,
-): void {
-  agentCompletionIntegrator = integrator;
-}
-
-async function notifyAgentCompletion(
-  completion: AgentCompletion,
-): Promise<void> {
-  if (!sendTelegramMessage) return;
-
-  let message = completion.result;
-  if (agentCompletionIntegrator) {
+  async deliver(): Promise<void> {
+    this.delivering = true;
     try {
-      message = await agentCompletionIntegrator(completion);
-      logger.info("Agent task result integrated into owner conversation", {
-        taskName: completion.taskName,
-        context: completion.context,
-      });
-    } catch (error) {
-      logger.error("Could not integrate agent result into owner conversation", {
-        taskName: completion.taskName,
-        context: completion.context,
-        error: errorMessage(error),
-      });
-    }
-  }
-
-  await sendTelegramMessage(message);
-}
-
-interface TaskRow {
-  id: number;
-  name: string;
-  type: string;
-  data: string;
-  cron: string | null;
-  next_run: number;
-  enabled: number;
-}
-
-async function executeTask(task: TaskRow): Promise<void> {
-  const parsed = JSON.parse(task.data);
-  logger.info(`Executing task: ${task.name}`, { type: task.type });
-
-  switch (task.type) {
-    case "bash": {
-      try {
-        const result = await $`sh -c ${parsed.command}`.text();
-        logger.info(`Bash task done: ${task.name}`, { output: result.slice(0, 500) });
-      } catch (error) {
-        logger.error(`Bash task failed: ${task.name}`, {
-          error: errorMessage(error),
-        });
-      }
-      break;
-    }
-
-    case "reminder": {
-      if (sendTelegramMessage) {
-        await sendTelegramMessage(parsed.message);
-        logger.info(`Reminder sent: ${task.name}`);
-      } else {
-        logger.warn("Cannot send reminder — Telegram sender not configured");
-      }
-      break;
-    }
-
-    case "cleanup": {
-      const targets: string[] = parsed.targets ?? [];
-      for (const target of targets) {
+      for (const run of this.store.pendingDelivery()) {
+        if (this.stopped) break;
         try {
-          await $`pkill -f ${target}`.quiet();
-          logger.info(`Cleaned up: ${target}`);
-        } catch {
-          logger.debug(`Nothing to clean for: ${target}`);
-        }
-      }
-      break;
-    }
-
-    case "agent": {
-      if (agentExecutor && sendTelegramMessage) {
-        let context: string;
-        try {
-          logger.info(`Agent task starting: ${task.name}`);
-          context = parseAgentTaskContext(parsed.context);
-          const result = await agentExecutor(parsed.prompt, context);
-          try {
-            await notifyAgentCompletion({
-              taskName: task.name,
-              context,
-              status: "completed",
-              result,
-            });
-          } catch (error) {
-            logger.error(
-              `Could not notify for completed agent task: ${task.name}`,
-              { error: errorMessage(error) },
-            );
+          const output = JSON.parse(run.result!) as Output;
+          const chat = run.kind === "telegram" ? Number(run.key) : this.hooks.owner;
+          const items: Delivery[] = run.delivery
+            ? JSON.parse(run.delivery)
+            : [
+                ...(shouldSend(output.text)
+                  ? splitTelegramMessage(output.text).map((text) => ({ chat, text }))
+                  : []),
+                ...(output.artifacts ?? []).map((path) => ({ chat, path })),
+              ];
+          if (!run.delivery)
+            this.store.db.run("UPDATE runs SET delivery=? WHERE id=?", [
+              JSON.stringify(items),
+              run.id,
+            ]);
+          for (let i = run.delivered; i < items.length; i++) {
+            const receipt = await this.hooks.send(items[i]!);
+            this.store.db.transaction(() => {
+              this.store.db.run("INSERT OR REPLACE INTO delivery_receipts VALUES(?,?,?)", [
+                run.id,
+                i,
+                receipt,
+              ]);
+              this.store.db.run("UPDATE runs SET delivered=? WHERE id=?", [i + 1, run.id]);
+            })();
           }
-          logger.info(`Agent task completed: ${task.name}`, { context });
+          this.store.db.run("UPDATE runs SET delivered=-1,delivery_error=NULL WHERE id=?", [
+            run.id,
+          ]);
         } catch (error) {
-          context = (() => {
-            try {
-              return parseAgentTaskContext(parsed.context);
-            } catch {
-              return DEFAULT_AGENT_TASK_CONTEXT;
-            }
-          })();
-          const failureMessage =
-            `Agent task "${task.name}" failed: ${errorMessage(error)}`;
-          logger.error(`Agent task failed: ${task.name}`, {
-            error: errorMessage(error),
-          });
-          try {
-            await notifyAgentCompletion({
-              taskName: task.name,
-              context,
-              status: "failed",
-              result: failureMessage,
-            });
-          } catch (notificationError) {
-            logger.error(
-              `Could not notify for failed agent task: ${task.name}`,
-              { error: errorMessage(notificationError) },
-            );
-          }
+          this.store.db.run(
+            "UPDATE runs SET attempts=attempts+1,next_delivery=?,delivery_error=? WHERE id=?",
+            [
+              Date.now() + Math.min(300_000, 5000 * 2 ** run.attempts),
+              redactSecrets(String(error)),
+              run.id,
+            ],
+          );
         }
-      } else {
-        logger.warn("Cannot run agent task — executor or Telegram sender not configured");
       }
-      break;
+    } finally {
+      this.delivering = false;
     }
+  }
+  stop(id: number): boolean {
+    const abort = this.active.get(id);
+    if (abort) abort.abort();
+    else
+      this.store.db.run(
+        "UPDATE runs SET state='cancelled',activity='Cancelled' WHERE id=? AND state IN ('queued','steering')",
+        [id],
+      );
+    return Boolean(abort);
+  }
+  async shutdown(): Promise<void> {
+    this.stopped = true;
+    clearInterval(this.timer);
+    for (const abort of this.active.values()) abort.abort();
+    // Leave the database open until provider callbacks settle; unclean exit is recovered on startup.
+    const deadline = Date.now() + 8000;
+    while ((this.active.size || this.delivering) && Date.now() < deadline) await Bun.sleep(50);
   }
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-function pollTasks(): void {
-  const now = Date.now();
-  const dueTasks = db.query(
-    "SELECT * FROM tasks WHERE enabled = 1 AND next_run <= ?",
-  ).all(now) as TaskRow[];
-
-  for (const task of dueTasks) {
-    executeTask(task).catch((err) => {
-      logger.error(`Task execution error: ${task.name}`, {
-        error: errorMessage(err),
-      });
+export async function executeShellTask(task: Task, signal: AbortSignal): Promise<Output | null> {
+  const parsed = taskData.parse({ type: task.type, data: JSON.parse(task.data) });
+  if (parsed.type === "agent") return null;
+  if (parsed.type === "reminder") return { text: parsed.data.message };
+  const commands =
+    parsed.type === "bash"
+      ? [["sh", "-c", parsed.data.command]]
+      : parsed.data.targets.map((target) => ["pkill", "-f", "--", target]);
+  for (const command of commands) {
+    signal.throwIfAborted();
+    const child = Bun.spawn(command, {
+      stdout: "ignore",
+      stderr: "ignore",
+      detached: process.platform !== "win32",
     });
-
-    if (task.cron) {
-      const nextRun = getNextCronRun(task.cron, now);
-      db.run("UPDATE tasks SET next_run = ? WHERE id = ?", [nextRun, task.id]);
-      logger.debug(`Next run for ${task.name}: ${new Date(nextRun).toISOString()}`);
-    } else {
-      db.run("UPDATE tasks SET enabled = 0 WHERE id = ?", [task.id]);
+    const kill = (signal: NodeJS.Signals) => {
+      try {
+        if (process.platform === "win32") child.kill(signal);
+        else process.kill(-child.pid, signal);
+      } catch {
+        /* Already exited. */
+      }
+    };
+    const abort = () => {
+      kill("SIGTERM");
+      setTimeout(() => kill("SIGKILL"), 2000).unref();
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      const code = await child.exited;
+      signal.throwIfAborted();
+      if (code !== 0 && !(parsed.type === "cleanup" && code === 1))
+        throw new Error(`Task ${task.name} exited with code ${code}`);
+    } finally {
+      signal.removeEventListener("abort", abort);
     }
   }
-}
-
-export function startTaskPoller(): void {
-  pollTasks();
-  pollTimer = setInterval(pollTasks, 30_000);
-  logger.info("Task poller started (30s interval)");
+  return { text: "" };
 }
 
 export function addTask(
   name: string,
-  type: "bash" | "reminder" | "cleanup" | "agent",
+  type: TaskType,
   data: Record<string, unknown>,
-  options?: { cron?: string; delayMs?: number },
-): void {
-  const nextRun = options?.cron
-    ? getNextCronRun(options.cron)
-    : Date.now() + (options?.delayMs ?? 0);
-
-  db.run(
-    "INSERT INTO tasks (name, type, data, cron, next_run) VALUES (?, ?, ?, ?, ?)",
-    [name, type, JSON.stringify(data), options?.cron ?? null, nextRun],
-  );
-  logger.info(`Task added: ${name}`, { type, cron: options?.cron, nextRun: new Date(nextRun).toISOString() });
+  options?: { cron?: string; delayMs?: number; timezone?: string },
+): Task {
+  return getStore().add(name, type, data, options);
 }
-
 export function removeTask(name: string): void {
-  db.run("DELETE FROM tasks WHERE name = ?", [name]);
-  logger.info(`Task removed: ${name}`);
+  getStore().cancelSchedule(name);
 }
-
-export function listTasks(): TaskRow[] {
-  return db.query("SELECT * FROM tasks WHERE enabled = 1 ORDER BY next_run").all() as TaskRow[];
+export function listTasks(): Task[] {
+  return getStore()
+    .db.query("SELECT * FROM tasks WHERE enabled=1 ORDER BY next_run")
+    .all() as Task[];
 }
-
 export function shutdownTasks(): void {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-  db.close();
-  logger.info("Task system shut down");
+  getStore().db.close();
 }
-
-logger.info("Task system initialized (SQLite-backed scheduler)");

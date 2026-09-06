@@ -1,186 +1,181 @@
+import type { Message } from "grammy/types";
 import type { BotContext } from "../bot.ts";
-import { generateResponse } from "../../ai/index.ts";
-import { logger } from "../../lib/logger.ts";
-import { errorMessage } from "../../lib/errors.ts";
-import { isShuttingDown } from "../../lib/state.ts";
+import { getStore } from "../../ai/session-store.ts";
+import { steerConversation } from "../../ai/index.ts";
 import { downloadTelegramFile } from "./file.ts";
 import { transcribeAudio } from "./transcribe.ts";
-import { ProviderAuthError } from "../../ai/auth.ts";
-import { splitTelegramMessage } from "../message-chunks.ts";
+import { telegram } from "../delivery.ts";
+import { redactRecord } from "../../lib/memory.ts";
+import type { Input } from "../../ai/turn.ts";
 
-function timestamp(): string {
-  const now = new Date();
-  const dt = now.toLocaleString("en-GB", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-  // Check if CET or CEST: CET=UTC+1, CEST=UTC+2
-  const utcH = now.getUTCHours();
-  const localH = Number(dt.split(", ")[1]?.split(":")[0] ?? "0");
-  const offset = ((localH - utcH) + 24) % 24;
-  const tz = offset === 2 ? "CEST" : "CET";
-  return dt.replace(", ", " ") + tz;
+export interface Incoming {
+  messages: Message[];
+  album?: string;
+  resumeOf?: number;
+  refresh?: boolean;
+}
+const ephemeral = new Map<number, Incoming>();
+export function releaseIncoming(id: number): void {
+  ephemeral.delete(id);
+}
+export function incomingFor(id: number, body: string): Incoming {
+  return ephemeral.get(id) ?? (JSON.parse(body) as Incoming);
 }
 
-const SKIP_RESPONSES = ["", "no response requested.", "no response requested", "no response needed.", "no response needed"];
-
-function shouldSendResponse(response: string): boolean {
-  return !SKIP_RESPONSES.includes(response.trim().toLowerCase());
+export function messageTime(seconds: number): string {
+  const date = new Date(seconds * 1000);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Rome",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+    hour12: false,
+  }).format(date);
+  return parts.replace(", ", " ");
 }
-
-async function sendResponse(ctx: BotContext, response: string): Promise<void> {
-  if (!shouldSendResponse(response)) {
-    return;
-  }
-
-  for (const chunk of splitTelegramMessage(response)) {
-    try {
-      await ctx.reply(chunk, { parse_mode: "Markdown" });
-    } catch {
-      // Markdown parsing failed (e.g., unmatched * or _), fall back to plain text.
-      await ctx.reply(chunk);
+export function messageText(message: Message): string {
+  return message.text ?? message.caption ?? "";
+}
+export async function buildInput(incoming: Incoming, signal?: AbortSignal): Promise<Input> {
+  const texts: string[] = [],
+    images: string[] = [];
+  const visited = new Set<string>();
+  async function read(message: Message, quoted = false): Promise<void> {
+    signal?.throwIfAborted();
+    texts.push(
+      `${quoted ? "Quoted message (context): " : ""}${messageTime(message.date)} [Telegram message ${message.message_id}] ${messageText(message)}`,
+    );
+    if (!quoted && message.reply_to_message) await read(message.reply_to_message, true);
+    let media: { file_id: string; file_name?: string } | undefined,
+      name = "file",
+      image = false,
+      audio = false;
+    if (message.photo) {
+      media = message.photo.at(-1);
+      name = "photo.jpg";
+      image = true;
+    } else if (message.document) {
+      media = message.document;
+      name = media.file_name ?? name;
+      image = /\.(png|jpe?g|webp)$/i.test(name);
+    } else if (message.voice) {
+      media = message.voice;
+      name = "voice.ogg";
+      audio = true;
+    } else if (message.audio) {
+      media = message.audio;
+      name = media.file_name ?? "audio.mp3";
+      audio = true;
+    } else if (message.video) {
+      media = message.video;
+      name = media.file_name ?? "video.mp4";
+    } else if (message.video_note) {
+      media = message.video_note;
+      name = "video-note.mp4";
+    } else if (message.animation) {
+      media = message.animation;
+      name = media.file_name ?? "animation.mp4";
+    } else if (message.sticker) {
+      media = message.sticker;
+      name = message.sticker.is_animated
+        ? "sticker.tgs"
+        : message.sticker.is_video
+          ? "sticker.webm"
+          : "sticker.webp";
+      image = name.endsWith("webp");
+      texts.push(`Sticker: ${message.sticker.emoji ?? ""}`);
     }
-  }
-}
-
-function withErrorHandling(
-  mediaType: string,
-  handler: (ctx: BotContext) => Promise<void>,
-): (ctx: BotContext) => Promise<void> {
-  return async function (ctx: BotContext): Promise<void> {
-    ctx.chatAction = "typing";
-    try {
-      await handler(ctx);
-    } catch (error) {
-      if (error instanceof ProviderAuthError) {
-        await ctx.reply(error.message);
-        return;
+    if (media && !visited.has(media.file_id)) {
+      visited.add(media.file_id);
+      const path = await downloadTelegramFile({ api: telegram }, media.file_id, name, signal);
+      texts.push(`Attachment saved at: ${path}`);
+      if (image) images.push(path);
+      if (audio) {
+        try {
+          texts.push(`Audio transcript: ${await transcribeAudio(path, signal)}`);
+        } catch {
+          signal?.throwIfAborted();
+          texts.push("Automatic transcription failed; the original audio is saved above.");
+        }
       }
-
-      // During shutdown (e.g. restart), the Claude process gets killed by SIGTERM.
-      // This is expected — don't log an error or send a confusing reply to the user.
-      if (isShuttingDown()) {
-        logger.info(`Shutdown interrupted ${mediaType} handler (expected)`);
-        return;
-      }
-      logger.error(`Failed to handle ${mediaType}`, {
-        error: errorMessage(error),
-      });
-      await ctx.reply(`Sorry, I couldn't process that ${mediaType}. Please try again.`);
     }
-  };
+    if ("location" in message) texts.push(`Location: ${JSON.stringify(message.location)}`);
+    if ("contact" in message) texts.push(`Shared contact: ${JSON.stringify(message.contact)}`);
+    if ("poll" in message) texts.push(`Poll: ${JSON.stringify(message.poll)}`);
+  }
+  for (const message of incoming.messages) await read(message);
+  return { text: texts.join("\n\n"), images };
 }
 
-export const handleMessage = withErrorHandling("message", async (ctx) => {
-  const text = ctx.message?.text;
-  if (!text) return;
-
-  const response = await generateResponse(ctx.chat!.id, `${timestamp()} ${text}`);
-  await sendResponse(ctx, response);
-});
-
-export const handlePhoto = withErrorHandling("image", async (ctx) => {
-  const photos = ctx.message?.photo;
-  if (!photos?.length) return;
-
-  const photo = photos[photos.length - 1]!;
-  const localPath = await downloadTelegramFile(ctx, photo.file_id, "photo.jpg");
-
-  const caption = ctx.message?.caption ?? "I sent you an image. What do you see?";
-  const prompt = `${timestamp()} [User sent an image saved at: ${localPath}]\n\n${caption}`;
-
-  const response = await generateResponse(ctx.chat!.id, prompt);
-  await sendResponse(ctx, response);
-});
-
-export const handleDocument = withErrorHandling("file", async (ctx) => {
-  const doc = ctx.message?.document;
-  if (!doc) return;
-
-  const fileName = doc.file_name ?? "document";
-  const localPath = await downloadTelegramFile(ctx, doc.file_id, fileName);
-
-  const caption = ctx.message?.caption ?? `I sent you a file: ${fileName}`;
-  const prompt = `${timestamp()} [User sent a file saved at: ${localPath} (filename: ${fileName})]\n\n${caption}`;
-
-  const response = await generateResponse(ctx.chat!.id, prompt);
-  await sendResponse(ctx, response);
-});
-
-export const handleVoice = withErrorHandling("voice message", async (ctx) => {
-  const voice = ctx.message?.voice;
-  if (!voice) return;
-
-  const localPath = await downloadTelegramFile(ctx, voice.file_id, "voice.ogg");
-  const transcription = await transcribeAudio(localPath);
-  logger.info("Voice message transcribed", { transcription });
-
-  const caption = ctx.message?.caption;
-  const ts = timestamp();
-  const prompt = caption
-    ? `${ts} [Voice message transcribed: "${transcription}"]\n\n${caption}`
-    : `${ts} ${transcription}`;
-
-  const response = await generateResponse(ctx.chat!.id, prompt);
-  await sendResponse(ctx, response);
-});
-
-export const handleAudio = withErrorHandling("audio file", async (ctx) => {
-  const audio = ctx.message?.audio;
-  if (!audio) return;
-
-  const extension = audio.mime_type?.split("/")[1] ?? "mp3";
-  const fileName = audio.file_name ?? `audio.${extension}`;
-  const localPath = await downloadTelegramFile(ctx, audio.file_id, fileName);
-
-  const transcription = await transcribeAudio(localPath);
-  logger.info("Audio file transcribed", { fileName, transcription });
-
-  const caption = ctx.message?.caption ?? `I sent you an audio file: ${fileName}`;
-  const prompt = `${timestamp()} [Audio file "${fileName}" transcribed: "${transcription}"]\n\n${caption}`;
-
-  const response = await generateResponse(ctx.chat!.id, prompt);
-  await sendResponse(ctx, response);
-});
-
-export const handleVideo = withErrorHandling("video", async (ctx) => {
-  const video = ctx.message?.video;
-  if (!video) return;
-
-  const fileName = video.file_name ?? "video.mp4";
-  const localPath = await downloadTelegramFile(ctx, video.file_id, fileName);
-
-  const caption = ctx.message?.caption ?? `I sent you a video: ${fileName}`;
-  const prompt = `${timestamp()} [User sent a video saved at: ${localPath} (filename: ${fileName}, duration: ${video.duration}s)]\n\n${caption}`;
-
-  const response = await generateResponse(ctx.chat!.id, prompt);
-  await sendResponse(ctx, response);
-});
-
-export const handleVideoNote = withErrorHandling("video note", async (ctx) => {
-  const videoNote = ctx.message?.video_note;
-  if (!videoNote) return;
-
-  const localPath = await downloadTelegramFile(ctx, videoNote.file_id, "video_note.mp4");
-  const prompt = `${timestamp()} [User sent a video note (round video) saved at: ${localPath} (duration: ${videoNote.duration}s)]\n\nI sent you a video note.`;
-
-  const response = await generateResponse(ctx.chat!.id, prompt);
-  await sendResponse(ctx, response);
-});
-
-export const handleSticker = withErrorHandling("sticker", async (ctx) => {
-  const sticker = ctx.message?.sticker;
-  if (!sticker) return;
-
-  const emoji = sticker.emoji ?? "";
-  const setName = sticker.set_name ?? "unknown";
-
-  const ts = timestamp();
-  let prompt: string;
-  if (sticker.is_animated || sticker.is_video) {
-    prompt = `${ts} [User sent a sticker: emoji ${emoji}, from set "${setName}"]`;
-  } else {
-    const localPath = await downloadTelegramFile(ctx, sticker.file_id, "sticker.webp");
-    prompt = `${ts} [User sent a sticker saved at: ${localPath} (emoji: ${emoji}, set: "${setName}")]`;
-  }
-
-  const response = await generateResponse(ctx.chat!.id, prompt);
-  await sendResponse(ctx, response);
-});
+/** Persist before returning to grammY, so its polling loop can immediately accept controls. */
+export function acceptMessage(ctx: BotContext): void {
+  if (!ctx.message || !ctx.chat) return;
+  const store = getStore(),
+    message = ctx.message;
+  const run = store.db
+    .transaction(() => {
+      if (store.db.query("SELECT id FROM telegram_updates WHERE id=?").get(ctx.update.update_id))
+        return null;
+      const album = "media_group_id" in message ? message.media_group_id : undefined;
+      const existing = album
+        ? (store.db
+            .query(
+              "SELECT id,body FROM runs WHERE kind='telegram' AND key=? AND state='queued' AND json_extract(body,'$.album')=?",
+            )
+            .get(String(ctx.chat!.id), album) as { id: number; body: string } | null)
+        : null;
+      const body: Incoming = existing
+        ? incomingFor(existing.id, existing.body)
+        : { messages: [], ...(album ? { album } : {}) };
+      body.messages.push(message);
+      const raw = JSON.stringify(body),
+        redacted = JSON.stringify(redactRecord(body));
+      const result = existing
+        ? store.get(existing.id)!
+        : store.enqueue(
+            "telegram",
+            String(ctx.chat!.id),
+            redactRecord(body),
+            null,
+            Date.now() + (album ? 1200 : 0),
+          );
+      store.db.run("UPDATE runs SET body=?,created_at=? WHERE id=?", [
+        redacted,
+        Date.now() + (album ? 1200 : 0),
+        result.id,
+      ]);
+      store.db.run("INSERT INTO telegram_updates(id,run_id) VALUES(?,?)", [
+        ctx.update.update_id,
+        result.id,
+      ]);
+      if (raw !== redacted) ephemeral.set(result.id, body);
+      return album ? null : { ...result, body: redacted };
+    })
+    .immediate();
+  if (!run || !message.text || message.reply_to_message) return;
+  // Native steering has its own acknowledgement; ambiguous interruptions are never replayed.
+  store.db.run("UPDATE runs SET state='steering' WHERE id=?", [run.id]);
+  void steerConversation(ctx.chat.id, {
+    text: `${messageTime(message.date)} ${message.text}`,
+  }).then(
+    (steered) => {
+      store.db.run("UPDATE runs SET state=?,delivered=? WHERE id=? AND state='steering'", [
+        steered ? "steered" : "queued",
+        steered ? -1 : 0,
+        run.id,
+      ]);
+      if (steered) ephemeral.delete(run.id);
+    },
+    (error) => {
+      if (store.get(run.id)?.state !== "steering") return;
+      if (/no active turn|not in progress|expected turn|turn.*mismatch/i.test(String(error)))
+        store.db.run("UPDATE runs SET state='queued' WHERE id=?", [run.id]);
+      else
+        store.finish(run.id, "interrupted", {
+          text: `I couldn't confirm delivery of the follow-up (#${run.id}). Use /status before resuming it.`,
+        });
+    },
+  );
+}

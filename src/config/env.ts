@@ -1,10 +1,8 @@
-import { existsSync } from "node:fs";
 import { z } from "zod";
 
 export const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().regex(/^\d{8,}:[A-Za-z0-9_-]{35,}$/, {
-    message:
-      "Invalid format. Expected: 123456789:ABCdef... Get yours from @BotFather on Telegram",
+    message: "Invalid format. Expected: 123456789:ABCdef... Get yours from @BotFather on Telegram",
   }),
   OWNER_TELEGRAM_USER_ID: z.coerce.number().int().positive({
     message:
@@ -13,9 +11,7 @@ export const envSchema = z.object({
   SHARED_FOLDER_PATH: z.string().min(1, {
     message: "Shared folder path is required",
   }),
-  NODE_ENV: z
-    .enum(["development", "production", "test"])
-    .default("production"),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   AI_PROVIDER: z
     .enum(["claudecode", "codex", "claude"])
@@ -27,15 +23,6 @@ export const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>;
 
 function loadEnv(): Env {
-  // Check if .env file exists before attempting validation.
-  // Bun silently skips missing .env files, so Zod would fail with
-  // cryptic "Required" errors for every field. Catch this early.
-  if (!existsSync(".env")) {
-    console.log("No .env file found.");
-    console.log("Run the setup wizard: bun run setup");
-    process.exit(0);
-  }
-
   const result = envSchema.safeParse(Bun.env);
 
   if (!result.success) {

@@ -1,73 +1,35 @@
-import { logger } from "../lib/logger.ts";
-import { rename } from "node:fs/promises";
+import { env } from "../config/env.ts";
+import { WorkStore } from "../lib/work-store.ts";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 
-const SHARED_FOLDER_PATH = Bun.env["SHARED_FOLDER_PATH"];
-const SESSIONS_DIR = SHARED_FOLDER_PATH ? SHARED_FOLDER_PATH : `${import.meta.dir}/../..`;
-
-function getSessionFilePath(provider: "claude" | "codex"): string {
-  return `${SESSIONS_DIR}/.${provider}-sessions.json`;
-}
-
-function getLegacySessionFilePath(): string {
-  return `${SESSIONS_DIR}/.sessions.json`;
-}
-
-async function readSessionRecord(path: string): Promise<Record<string, string> | null> {
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    return null;
-  }
-
-  let data: unknown;
+let store: WorkStore | undefined;
+export function getStore(): WorkStore {
+  if (store) return store;
+  const candidate = new WorkStore(join(env.SHARED_FOLDER_PATH, "rachel-memory", "tasks.db"));
   try {
-    data = await file.json();
+    candidate.db.transaction(() => {
+      for (const provider of ["codex", "claude"]) {
+        const current = join(env.SHARED_FOLDER_PATH, `.${provider}-sessions.json`);
+        const legacy = join(env.SHARED_FOLDER_PATH, ".sessions.json");
+        const path = existsSync(current) ? current : provider === "claude" ? legacy : current;
+        if (!existsSync(path)) continue;
+        const entries: unknown = JSON.parse(readFileSync(path, "utf8"));
+        if (!entries || typeof entries !== "object" || Array.isArray(entries))
+          throw new Error(`Invalid legacy sessions: ${path}`);
+        for (const [key, id] of Object.entries(entries)) {
+          if (typeof id === "string")
+            candidate.db.run("INSERT OR IGNORE INTO sessions(provider,key,id) VALUES(?,?,?)", [
+              provider,
+              key,
+              id,
+            ]);
+        }
+      }
+    })();
   } catch (error) {
-    logger.warn("Ignoring unreadable session state", {
-      path,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
+    candidate.db.close();
+    throw error;
   }
-
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-
-  return data as Record<string, string>;
-}
-
-export async function loadSessionMap(
-  provider: "claude" | "codex",
-): Promise<Map<string, string>> {
-  const sessions = new Map<string, string>();
-  const sessionFile = getSessionFilePath(provider);
-  const legacyFile = provider === "claude" ? getLegacySessionFilePath() : null;
-
-  const data =
-    (await readSessionRecord(sessionFile)) ??
-    (legacyFile ? await readSessionRecord(legacyFile) : null);
-
-  if (!data) {
-    return sessions;
-  }
-
-  for (const [chatId, sessionId] of Object.entries(data)) {
-    sessions.set(chatId, sessionId);
-  }
-
-  logger.info(`Loaded ${sessions.size} ${provider} session(s)`);
-
-  if (provider === "claude" && !(await Bun.file(sessionFile).exists()) && legacyFile) {
-    await saveSessionMap(provider, sessions);
-  }
-
-  return sessions;
-}
-
-export async function saveSessionMap(
-  provider: "claude" | "codex",
-  sessions: Map<string, string>,
-): Promise<void> {
-  const filePath = getSessionFilePath(provider);
-  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await Bun.write(temporaryPath, JSON.stringify(Object.fromEntries(sessions)));
-  await rename(temporaryPath, filePath);
+  return (store = candidate);
 }

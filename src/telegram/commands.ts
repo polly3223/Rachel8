@@ -1,7 +1,4 @@
-import {
-  REASONING_EFFORTS,
-  type ReasoningEffort,
-} from "../lib/reasoning-effort.ts";
+import { REASONING_EFFORTS, type ReasoningEffort } from "../lib/reasoning-effort.ts";
 
 const EFFORT_LABELS: Record<ReasoningEffort, string> = {
   low: "low",
@@ -31,6 +28,13 @@ export function buildHelpText(): string {
     "",
     "/start - Start Rachel.",
     "/help - Show this guide.",
+    "/status - Show active work and recent results.",
+    "/stop [work ID] - Stop this chat or a selected job; cancel queued chat requests.",
+    "/resume <work ID> - Recover interrupted work after checking completed actions.",
+    "/answer <text> - Answer a question from an active task.",
+    "/retry_delivery <work ID> - Retry sending a saved result without rerunning it.",
+    "/capabilities - Discover configured connectors and tool availability.",
+    "Messages sent during a Codex task steer it. Other providers queue them.",
     "/refresh - Save the active work, start a fresh AI thread, and load the handoff.",
     "",
     "AI provider login",

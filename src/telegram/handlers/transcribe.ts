@@ -31,7 +31,7 @@ try {
   logger.warn(`STT not configured: ${errorMessage(e)}`);
 }
 
-export async function transcribeAudio(filePath: string): Promise<string> {
+export async function transcribeAudio(filePath: string, signal?: AbortSignal): Promise<string> {
   const t0 = performance.now();
   const config = getConfig();
 
@@ -50,6 +50,9 @@ export async function transcribeAudio(filePath: string): Promise<string> {
   formData.append("model", config.model);
 
   const response = await fetch(config.url, {
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(120_000)])
+      : AbortSignal.timeout(120_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,

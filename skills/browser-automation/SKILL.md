@@ -340,7 +340,7 @@ curl -s http://localhost:9867/instances/<id>/logs
 ## Critical Notes
 
 - **Always use `CHROME_BINARY=~/.pinchtab/chrome-wrapper.sh`** on VPS — Chrome needs `--no-sandbox`
-- **PinchTab dashboard + instances survive restarts** if launched with `nohup`
+- **Use an independent systemd user service to survive Rachel service restarts.** `nohup` survives turns, but Rachel's service restart kills children in its cgroup.
 - **Cookie sessions persist** in the profile directory across restarts
 - **`/text` is the most token-efficient** way to read pages — use it by default
 - **`/evaluate` is the endpoint for JavaScript** (not `/eval`)

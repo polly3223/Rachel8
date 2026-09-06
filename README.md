@@ -2,7 +2,7 @@
 
 Personal AI assistant on Telegram, powered by Claude Code or Codex. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
 
-Rachel supports both the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) and the [OpenAI Codex SDK](https://developers.openai.com/codex/sdk/). Choose the provider with `AI_PROVIDER=claudecode` or `AI_PROVIDER=codex` in `.env`. The default is `codex`.
+Rachel supports both the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) and the [bundled Codex stdio app-server](https://developers.openai.com/codex/app-server/). Choose the provider with `AI_PROVIDER=claudecode` or `AI_PROVIDER=codex` in `.env`. The default is `codex`.
 
 You need exactly one provider CLI installed on the server:
 - `claudecode` needs Claude Code installed and logged in
@@ -75,7 +75,7 @@ On macOS with Homebrew-managed Node:
 
 ```bash
 brew install node
-npm install -g @anthropic-ai/claude-code
+bun add --global @anthropic-ai/claude-code
 ```
 
 For `AI_PROVIDER=codex`:
@@ -171,7 +171,7 @@ That's it. Send a message to your bot on Telegram.
 bun run dev          # Start with hot reload (bun --watch)
 bun run start        # Start normally
 bun run setup        # Re-run setup wizard
-bun test             # Run tests
+bun run check        # Strict TypeScript, isolated tests and build
 ```
 
 ## Remote Re-Login
@@ -198,9 +198,21 @@ localhost page, send its complete address-bar URL with `/connector_callback <url
 relay it to the validated local callback. Connector access still follows the permissions configured
 in the connected Slack or Linear account.
 
+## Work controls and recovery
+
+Messages are saved before Telegram intake returns. While a Codex turn runs, a new text message can steer it; `/stop` and `/status` stay responsive. Albums are grouped, quoted replies retain their context, and pictures are passed as native image inputs. `/answer <text>` answers a pending provider question.
+
+Scheduled work and owner messages share a small SQLite queue in `rachel-memory/tasks.db`. Runs preserve status, conversation IDs, checkpoints and delivery progress. `/resume <work ID>` explicitly recovers interrupted work after inspecting completed effects; it does not blindly replay actions on startup. `/retry_delivery <work ID>` retries only a saved result. Delivery is at-least-once: a network failure after Telegram accepts a message can still produce a duplicate. Failed deliveries stop after six attempts and remain visible.
+
+New cron schedules default to Europe/Rome; legacy schedules retain UTC. Use `bun run schedule` or the typed Rachel task tools to validate schedules. Background results are delivered directly and included as context in the next owner turn, avoiding a second model call per completion.
+
+The Codex adapter uses the documented stdio protocol, pinned to the bundled CLI version. It preserves existing thread IDs and login. Typed Rachel tools are registered on newly created threads; older threads retain the CLI equivalents until refreshed. Read-only connector discovery is available through `/capabilities`.
+
+WhatsApp uses a separate supervised service, a private Unix socket and searchable SQLite history. No customer or WhatsApp messages are sent by tests. Read `skills/whatsapp-bridge/SKILL.md` for the commands.
+
 ## How it works
 
-Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses Claude Agent SDK or OpenAI Codex SDK with full tool access:
+Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses Claude Agent SDK or the bundled Codex stdio app-server with full tool access:
 
 - **Bash** — run any command on the server
 - **File system** — read, write, edit any file
@@ -219,7 +231,7 @@ rachel8/
 │   │   ├── index.ts          # Provider selector
 │   │   ├── auth.ts           # Provider auth checks + login error mapping
 │   │   ├── claude.ts         # Claude Agent SDK adapter
-│   │   ├── codex.ts          # OpenAI Codex SDK adapter
+│   │   ├── codex.ts          # the bundled Codex stdio app-server adapter
 │   │   └── provider.ts       # Provider names + normalization
 │   ├── config/
 │   │   └── env.ts            # Zod-validated environment config
