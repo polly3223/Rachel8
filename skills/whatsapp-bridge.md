@@ -1,1 +1,0 @@
-The maintained WhatsApp bridge skill is [whatsapp-bridge/SKILL.md](whatsapp-bridge/SKILL.md). Read it for connection, persistent history, contact export, authorized sends and verified logout commands.

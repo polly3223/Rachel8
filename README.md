@@ -208,8 +208,6 @@ New cron schedules default to Europe/Rome; legacy schedules retain UTC. Use `bun
 
 The Codex adapter uses the documented stdio protocol, pinned to the bundled CLI version. It preserves existing thread IDs and login. Typed Rachel tools are registered on newly created threads; older threads retain the CLI equivalents until refreshed. Read-only connector discovery is available through `/capabilities`.
 
-WhatsApp uses a separate supervised service, a private Unix socket and searchable SQLite history. No customer or WhatsApp messages are sent by tests. Read `skills/whatsapp-bridge/SKILL.md` for the commands.
-
 ## How it works
 
 Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses Claude Agent SDK or the bundled Codex stdio app-server with full tool access:

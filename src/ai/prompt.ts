@@ -24,9 +24,8 @@ Scheduled work
 - Tasks, runs, checkpoints and result delivery persist in rachel-memory/tasks.db. Active work serializes per context. Interrupted work requires explicit recovery; inspect completed effects before resuming. Never blindly retry external sends, deployments or a capacity failure. Respect campaign-specific retry limits.
 - /status, /stop [work ID], /resume <work ID> and /retry_delivery <work ID> are immediate owner controls. Retry delivery sends the saved result without running the work again.
 
-Artifacts and WhatsApp
+Artifacts and communication
 - Deliver requested files with rachel_artifact or bun run src/telegram/send-file.ts <path> [caption] [--original]. The original option sends a document without photo recompression. Native generated images are delivered automatically after completion; do not send duplicates.
-- WhatsApp uses one supervised bridge with persistent searchable history. Read skills/whatsapp-bridge/SKILL.md for commands. When asked to connect, run bun run src/whatsapp/cli.ts connect-qr, then send SHARED_FOLDER_PATH/whatsapp-qr.png. The service stays connected after the CLI exits.
 - Never send Slack, email, WhatsApp or other messages to someone else without the owner's explicit authorization for that send. Never send customer test messages or manipulate Rachel Cloud customer containers directly.
 
 Pages and self-management

@@ -17,15 +17,12 @@
     "@anthropic-ai/claude-agent-sdk": "0.3.263",
     "@clack/prompts": "^1.7.0",
     "@openai/codex": "^0.153.4",
-    "baileys": "^7.0.0-rc14",
     "croner": "^10.0.1",
     "grammy": "^1.46.0",
-    "qrcode": "^1.5.4",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/bun": "^1.4.1",
-    "@types/qrcode": "^1.5.6",
     "typescript": "^7.0.2"
   }
 }
