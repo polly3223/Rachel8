@@ -18,7 +18,7 @@ await bot.init();
 await bot.api
   .setMyCommands([...BOT_COMMANDS])
   .catch(() => logger.warn("Could not sync Telegram command menu"));
-const notify = (text: string) => sendChunks(env.OWNER_TELEGRAM_USER_ID, text);
+const notify = (text: string) => sendChunks(env.OWNER_TELEGRAM_USER_ID, text, false);
 setLoginNotifier(notify);
 setConnectorNotifier(notify);
 startRuntime();

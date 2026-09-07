@@ -254,11 +254,8 @@ export async function startConnectorSession(value?: string): Promise<string> {
   const codex = await resolveCliPath("codex");
   await ensurePlugin(codex, connector);
   if (connector === "linear") {
-    // Register the exact loopback callback for Linear's redirect validation.
     if (await isLinearMcpConfigured(codex)) {
-      spawnSession(connector, codex, [
-        "mcp", "login", LINEAR_MCP_NAME, "--oauth-client-registration", "dcr",
-      ]);
+      spawnSession(connector, codex, ["mcp", "login", LINEAR_MCP_NAME]);
     } else {
       // `mcp add` starts OAuth immediately when the server advertises it, so
       // keep it inside the managed session instead of waiting synchronously.
@@ -270,8 +267,6 @@ export async function startConnectorSession(value?: string): Promise<string> {
         LINEAR_MCP_URL,
         "--oauth-resource",
         LINEAR_MCP_URL,
-        "--oauth-client-registration",
-        "dcr",
       ]);
     }
   } else {

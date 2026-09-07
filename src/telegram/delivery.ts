@@ -6,9 +6,9 @@ import { splitTelegramMessage } from "./message-chunks.ts";
 export const telegram = new Api(env.TELEGRAM_BOT_TOKEN);
 export const shouldSend = (text: string) =>
   !/^(?:no response (?:requested|needed)\.?\s*)?$/i.test(text.trim());
-export async function sendText(chat: number, text: string): Promise<number> {
+export async function sendText(chat: number, text: string, markdown = true): Promise<number> {
   try {
-    return (await telegram.sendMessage(chat, text, { parse_mode: "Markdown" })).message_id;
+    return (await telegram.sendMessage(chat, text, markdown ? { parse_mode: "Markdown" } : {})).message_id;
   } catch (error) {
     if (
       !(error instanceof GrammyError) ||
@@ -18,8 +18,8 @@ export async function sendText(chat: number, text: string): Promise<number> {
     return (await telegram.sendMessage(chat, text)).message_id;
   }
 }
-export async function sendChunks(chat: number, text: string): Promise<void> {
-  if (shouldSend(text)) for (const chunk of splitTelegramMessage(text)) await sendText(chat, chunk);
+export async function sendChunks(chat: number, text: string, markdown = true): Promise<void> {
+  if (shouldSend(text)) for (const chunk of splitTelegramMessage(text)) await sendText(chat, chunk, markdown);
 }
 export function fileMethod(
   path: string,
