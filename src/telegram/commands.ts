@@ -1,17 +1,17 @@
 import { REASONING_EFFORTS, type ReasoningEffort } from "../lib/reasoning-effort.ts";
 
-const EFFORT_LABELS: Record<ReasoningEffort, string> = {
-  low: "low",
-  medium: "medium",
-  high: "high",
-  xhigh: "extra high",
-  max: "max",
-  ultra: "ultra",
+const EFFORT_DESCRIPTIONS: Record<ReasoningEffort, string> = {
+  low: "Fast responses with lighter reasoning",
+  medium: "Balances speed and reasoning depth for everyday tasks",
+  high: "Greater reasoning depth for complex problems",
+  xhigh: "Extra high reasoning depth for complex problems",
+  max: "Maximum reasoning depth for the hardest problems",
+  ultra: "Maximum reasoning with automatic task delegation",
 };
 
 export const EFFORT_SET_COMMANDS = REASONING_EFFORTS.map((effort) => ({
   command: `effort_${effort}`,
-  description: `Set thinking effort to ${EFFORT_LABELS[effort]}`,
+  description: EFFORT_DESCRIPTIONS[effort],
   effort,
 }));
 
@@ -53,8 +53,8 @@ export function buildHelpText(): string {
     "Thinking effort",
     "/effort - Show the current persistent effort.",
     ...EFFORT_SET_COMMANDS.map(
-      ({ command, effort }) =>
-        `/${command} - Set effort to ${EFFORT_LABELS[effort]}. Applies from the next turn.`,
+      ({ command, description }) =>
+        `/${command} - ${description}. Applies from the next turn.`,
     ),
   ].join("\n");
 }
