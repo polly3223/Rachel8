@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
 
 interface Packet {
   id?: number | string;
@@ -100,12 +99,27 @@ export async function connectCodex(cli: string, signal?: AbortSignal): Promise<R
   signal?.addEventListener("abort", abort, { once: true });
   // Do not log raw provider stderr: tool arguments and authentication details can appear there.
   child.stderr.resume();
-  const lines = createInterface({ input: child.stdout });
-  lines.on("line", (line) => {
-    try {
-      client.accept(JSON.parse(line) as Packet);
-    } catch {
-      client.close(new Error("Invalid Codex protocol message"));
+  // JSONL is delimited by LF. Bun's readline also splits U+2028/U+2029 inside JSON strings.
+  child.stdout.setEncoding("utf8");
+  let buffer = "";
+  child.stdout.on("data", (chunk: string) => {
+    buffer += chunk;
+    for (let end = buffer.indexOf("\n"); end !== -1; end = buffer.indexOf("\n")) {
+      const line = buffer.slice(0, end);
+      buffer = buffer.slice(end + 1);
+      let packet: Packet;
+      try {
+        packet = JSON.parse(line) as Packet;
+      } catch {
+        client.close(new Error("Invalid Codex protocol message"));
+        return;
+      }
+      try {
+        client.accept(packet);
+      } catch (error) {
+        client.close(new Error("Codex message handler failed", { cause: error }));
+        return;
+      }
     }
   });
   child.once("error", (error) => client.close(error));
