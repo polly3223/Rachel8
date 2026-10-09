@@ -200,6 +200,8 @@ in the connected Slack or Linear account.
 
 ## Work controls and recovery
 
+AI replies and progress messages use Telegram's [native Rich Messages](https://core.telegram.org/bots/api#rich-message-formatting-options), including Markdown tables, headings, lists, quotes, code and formulas. Long replies split at paragraph boundaries where possible within the 32,768-character limit. Rejected formatting falls back to an unformatted rich paragraph, preserving one delivery receipt per message. Login links remain plain text.
+
 Messages are saved before Telegram intake returns. While a Codex turn runs, a new text message can steer it; `/stop` and `/status` stay responsive. Albums are grouped, quoted replies retain their context, and pictures are passed as native image inputs. `/answer <text>` answers a pending provider question.
 
 Scheduled work and owner messages share a small SQLite queue in `rachel-memory/tasks.db`. Runs preserve status, conversation IDs, checkpoints and delivery progress. `/resume <work ID>` explicitly recovers interrupted work after inspecting completed effects; it does not blindly replay actions on startup. `/retry_delivery <work ID>` retries only a saved result. Delivery is at-least-once: a network failure after Telegram accepts a message can still produce a duplicate. Failed deliveries stop after six attempts and remain visible.

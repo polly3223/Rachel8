@@ -36,7 +36,8 @@ export function messageTime(seconds: number): string {
   return parts.replace(", ", " ");
 }
 export function messageText(message: Message): string {
-  return message.text ?? message.caption ?? "";
+  return message.text ?? message.caption ??
+    (message.rich_message ? JSON.stringify(message.rich_message) : "");
 }
 export async function buildInput(incoming: Incoming, signal?: AbortSignal): Promise<Input> {
   const texts: string[] = [],

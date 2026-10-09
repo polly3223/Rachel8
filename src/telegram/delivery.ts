@@ -1,25 +1,32 @@
 import { Api, InputFile, GrammyError } from "grammy";
 import { basename } from "node:path";
 import { env } from "../config/env.ts";
-import { splitTelegramMessage } from "./message-chunks.ts";
+import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-chunks.ts";
 
 export const telegram = new Api(env.TELEGRAM_BOT_TOKEN);
 export const shouldSend = (text: string) =>
   !/^(?:no response (?:requested|needed)\.?\s*)?$/i.test(text.trim());
 export async function sendText(chat: number, text: string, markdown = true): Promise<number> {
+  if (!markdown) return (await telegram.sendMessage(chat, text)).message_id;
   try {
-    return (await telegram.sendMessage(chat, text, markdown ? { parse_mode: "Markdown" } : {})).message_id;
+    return (await telegram.sendRichMessage(chat, { markdown: text })).message_id;
   } catch (error) {
     if (
       !(error instanceof GrammyError) ||
-      !/parse entities|can't find end/i.test(error.description)
+      error.error_code !== 400 ||
+      !/parse|can't find end|rich.message|too many (?:blocks|columns)|nesting/i.test(error.description)
     )
       throw error;
-    return (await telegram.sendMessage(chat, text)).message_id;
+    // One successful message/receipt per outbox item, even when formatting is rejected.
+    return (await telegram.sendRichMessage(chat, {
+      blocks: [{ type: "paragraph", text }],
+    })).message_id;
   }
 }
 export async function sendChunks(chat: number, text: string, markdown = true): Promise<void> {
-  if (shouldSend(text)) for (const chunk of splitTelegramMessage(text)) await sendText(chat, chunk, markdown);
+  if (shouldSend(text))
+    for (const chunk of splitTelegramMessage(text, markdown ? undefined : TELEGRAM_MESSAGE_LIMIT))
+      await sendText(chat, chunk, markdown);
 }
 export function fileMethod(
   path: string,

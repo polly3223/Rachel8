@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { Context } from "grammy";
-import type { UserFromGetMe } from "grammy/types";
+import type { Message, UserFromGetMe } from "grammy/types";
 import { acceptMessage, buildInput, messageTime } from "./message.ts";
 import { getStore } from "../../ai/session-store.ts";
 import { telegram } from "../delivery.ts";
@@ -41,6 +41,22 @@ test("the prompt keeps the Telegram send time and the quoted decision", async ()
   expect(input.text).toContain("Apply that choice");
   expect(input.text).toContain(messageTime(original.date));
   expect(input.text).toContain("Telegram message 101");
+});
+test("replies to rich messages retain structured formatted text as context", async () => {
+  const original: Message.RichMessageMessage = {
+    message_id: 103, date: 1788715620, chat: message(103).chat,
+    rich_message: { blocks: [
+      { type: "heading", size: 2, text: "Results" },
+      { type: "paragraph", text: { type: "bold", text: "Use Sonnet" } },
+    ] },
+  };
+  const input = await buildInput({ messages: [{
+    ...message(104, "Use that one"), reply_to_message: { ...original, reply_to_message: undefined },
+  }] });
+  expect(input.text).toContain("Quoted message (context)");
+  expect(input.text).toContain("Telegram message 103");
+  expect(input.text).toContain("Use Sonnet");
+  expect(input.text).toContain('"type":"bold"');
 });
 test("album intake is durable and deduplicated before any media processing", () => {
   const photo = (id: number) =>

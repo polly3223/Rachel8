@@ -172,7 +172,7 @@ describe("durable work", () => {
       owner: 123456789,
       execute: async () => {
         executions++;
-        return { text: "A".repeat(7000) };
+        return { text: "A".repeat(40000) };
       },
       send: async (item) => {
         sends++;
@@ -190,8 +190,25 @@ describe("durable work", () => {
     await runner.deliver();
     expect(executions).toBe(1);
     expect(sends).toBe(3);
-    expect(delivered.join("")).toBe("A".repeat(7000));
+    expect(delivered.join("")).toBe("A".repeat(40000));
     expect(store.get(1)?.delivered).toBe(-1);
+    await runner.shutdown();
+  });
+  test("a saved rich table above 4096 characters is delivered whole with one receipt", async () => {
+    const store = fresh();
+    const run = store.enqueue("telegram", "123456789", {});
+    const text = "| Feature | Result |\n| --- | --- |\n" + "| Markdown | **Pass** |\n".repeat(200);
+    store.finish(run.id, "succeeded", { text });
+    const sent: string[] = [];
+    const runner = new WorkRunner(store, {
+      owner: 123456789,
+      execute: async () => { throw new Error("Completed work must not execute again"); },
+      send: async (item) => { sent.push(item.text!); return 123; },
+    });
+    await runner.deliver();
+    expect(sent).toEqual([text]);
+    expect(store.get(run.id)?.delivered).toBe(-1);
+    expect(store.db.query("SELECT message_id FROM delivery_receipts").all()).toEqual([{ message_id: 123 }]);
     await runner.shutdown();
   });
   test("capacity failures are recorded without automatic model or execution retries", async () => {
