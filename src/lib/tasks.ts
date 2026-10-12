@@ -11,6 +11,7 @@ import { splitTelegramMessage } from "../telegram/message-chunks.ts";
 import { shouldSend } from "../telegram/delivery.ts";
 import { redactSecrets } from "./memory.ts";
 import { logger } from "./logger.ts";
+import { dispatchWorkerMessages, getWorker, stopWorker } from "./workers.ts";
 
 export interface Delivery {
   chat: number;
@@ -21,6 +22,7 @@ export interface WorkerHooks {
   execute: (run: Work, signal: AbortSignal) => Promise<Output>;
   send: (item: Delivery) => Promise<number>;
   owner: number;
+  steer?: (key: string, text: string) => Promise<boolean>;
 }
 /** Execution and delivery have independent lifecycles. A send retry cannot rerun a tool. */
 export class WorkRunner {
@@ -28,6 +30,7 @@ export class WorkRunner {
   private active = new Map<number, AbortController>();
   private delivering = false;
   private stopped = false;
+  private messaging = false;
   constructor(
     readonly store: WorkStore,
     readonly hooks: WorkerHooks,
@@ -40,6 +43,16 @@ export class WorkRunner {
   tick(): void {
     if (this.stopped) return;
     this.store.due();
+    for (const [id, abort] of this.active) {
+      const worker = this.store.get(id)?.worker_id;
+      if (worker && getWorker(this.store, worker)?.stopped) abort.abort();
+    }
+    if (!this.messaging) {
+      this.messaging = true;
+      void dispatchWorkerMessages(this.store, this.hooks.steer ?? (async () => false))
+        .catch((error) => logger.error("Worker message dispatch failed", { error: String(error) }))
+        .finally(() => { this.messaging = false; });
+    }
     // Reserve foreground capacity even while two unrelated background jobs are running.
     for (const kind of ["telegram", "task"] as const) {
       let count = [...this.active.keys()].filter((id) => this.store.get(id)?.kind === kind).length;
@@ -125,6 +138,8 @@ export class WorkRunner {
     }
   }
   stop(id: number): boolean {
+    const worker = this.store.get(id)?.worker_id;
+    if (worker) stopWorker(this.store, worker);
     const abort = this.active.get(id);
     if (abort) abort.abort();
     else
@@ -140,7 +155,7 @@ export class WorkRunner {
     for (const abort of this.active.values()) abort.abort();
     // Leave the database open until provider callbacks settle; unclean exit is recovered on startup.
     const deadline = Date.now() + 8000;
-    while ((this.active.size || this.delivering) && Date.now() < deadline) await Bun.sleep(50);
+    while ((this.active.size || this.delivering || this.messaging) && Date.now() < deadline) await Bun.sleep(50);
   }
 }
 

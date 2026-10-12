@@ -117,3 +117,20 @@ test("credential masking cannot corrupt a persisted JSON envelope", () => {
   expect(() => JSON.parse(run.body)).not.toThrow();
   expect(run.body).not.toContain(secret);
 });
+test("status keeps older active work visible and splits a full queue into valid Telegram messages", async () => {
+  bot.botInfo = me;
+  const sent: string[] = [];
+  bot.api.config.use(async (_prev, method, payload) => {
+    if (method === "sendMessage") sent.push((payload as { text: string }).text);
+    return { ok: true, result: message(444) } as never;
+  });
+  const store = getStore();
+  const old = store.enqueue("task", "old-worker", {});
+  store.db.run("UPDATE runs SET state='running' WHERE id=?", [old.id]);
+  const queued = Array.from({ length: 32 }, (_, i) => store.enqueue("task", `worker-${i}-${"x".repeat(100)}`, {}));
+  await bot.handleUpdate({ update_id: 500, message: { ...message(500, "/status"), entities: [{ type: "bot_command", offset: 0, length: 7 }] } });
+  expect(sent.length).toBeGreaterThan(1);
+  expect(sent.every((text) => text.length <= 4096)).toBe(true);
+  expect(sent.join("\n")).toContain(`#${old.id} old-worker: running`);
+  for (const run of [old, ...queued]) store.finish(run.id, "succeeded", { text: "" });
+});

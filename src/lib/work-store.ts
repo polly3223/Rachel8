@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { Cron } from "croner";
 import { z } from "zod";
 import { parseAgentTaskContext } from "./task-context.ts";
+import { assertWorkerCapacity, getWorker, reviewWorkerResult } from "./workers.ts";
 
 export const taskData = z.discriminatedUnion("type", [
   z.object({
@@ -51,6 +52,7 @@ export interface Work {
   created_at: number;
   started_at: number | null;
   checkpoint: string | null;
+  worker_id: number | null;
 }
 export interface Output {
   text: string;
@@ -102,11 +104,18 @@ export class WorkStore {
       CREATE TABLE IF NOT EXISTS telegram_updates (id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS delivery_receipts (run_id INTEGER NOT NULL, part INTEGER NOT NULL, message_id INTEGER NOT NULL, PRIMARY KEY(run_id,part));
       CREATE TABLE IF NOT EXISTS sessions (provider TEXT NOT NULL, key TEXT NOT NULL, id TEXT NOT NULL,
-        previous_id TEXT, PRIMARY KEY(provider,key));`);
+        previous_id TEXT, PRIMARY KEY(provider,key));
+      CREATE TABLE IF NOT EXISTS workers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+        chief_key TEXT NOT NULL, parent_run INTEGER NOT NULL, prompt TEXT NOT NULL,
+        max_turns INTEGER NOT NULL, stopped INTEGER NOT NULL DEFAULT 0, UNIQUE(chief_key,name));
+      CREATE TABLE IF NOT EXISTS worker_reports (run_id INTEGER PRIMARY KEY, review_run INTEGER NOT NULL);`);
     const columns = this.db.query("PRAGMA table_info(tasks)").all() as { name: string }[];
     // Legacy expressions were UTC. New schedules use the owner's zone.
     if (!columns.some((c) => c.name === "timezone"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'");
+    const runColumns = this.db.query("PRAGMA table_info(runs)").all() as { name: string }[];
+    if (!runColumns.some((c) => c.name === "worker_id")) this.db.exec("ALTER TABLE runs ADD COLUMN worker_id INTEGER");
+    this.db.exec("CREATE INDEX IF NOT EXISTS runs_worker ON runs(worker_id,id)");
   }
   add(
     name: string,
@@ -190,7 +199,8 @@ export class WorkStore {
           .query(
             `SELECT * FROM runs r WHERE state='queued' AND created_at<=?
         AND (? IS NULL OR kind=?) AND NOT EXISTS(SELECT 1 FROM runs a WHERE a.key=r.key
-          AND (a.state='running' OR (a.state IN ('queued','steering') AND a.id<r.id)))
+          AND (a.state='running' OR (a.state IN ('queued','steering','pending_message') AND a.id<r.id)))
+        AND NOT EXISTS(SELECT 1 FROM workers w WHERE w.id=r.worker_id AND w.stopped=1)
         ORDER BY created_at,id LIMIT 1`,
           )
           .get(now, kind ?? null, kind ?? null) as Work | null;
@@ -204,12 +214,10 @@ export class WorkStore {
       .immediate();
   }
   finish(id: number, state: string, output: Output): void {
-    this.db.run("UPDATE runs SET state=?,result=?,activity=?,heartbeat=NULL WHERE id=?", [
-      state,
-      JSON.stringify(output),
-      state,
-      id,
-    ]);
+    this.db.transaction(() => {
+      const updated = this.db.run("UPDATE runs SET state=?,result=?,activity=?,heartbeat=NULL WHERE id=? AND result IS NULL", [state, JSON.stringify(output), state, id]);
+      if (updated.changes) reviewWorkerResult(this, this.get(id)!);
+    }).immediate();
   }
   recover(): void {
     // Interrupted tools may already have performed external actions. Keep checkpoints;
@@ -239,12 +247,23 @@ export class WorkStore {
             `Work was already resumed as #${resumed.id} (${resumed.state}); inspect that run before continuing`,
           );
         }
-        return this.enqueue(
+        if (run.worker_id) {
+          const worker = getWorker(this, run.worker_id)!;
+          if (this.db.query("SELECT 1 FROM runs WHERE worker_id=? AND state IN ('running','steering')").get(worker.id))
+            throw new Error("Worker is still stopping; wait for its active run to settle before resuming");
+          assertWorkerCapacity(this, worker);
+          this.db.run("UPDATE workers SET stopped=0 WHERE id=?", [worker.id]);
+        }
+        const next = this.enqueue(
           run.kind,
           run.key,
           { ...JSON.parse(run.body), resumeOf: id },
           run.task_id,
         );
+        if (run.worker_id) this.db.run("UPDATE runs SET worker_id=? WHERE id=?", [run.worker_id, next.id]);
+        // A resumed chief review reads the same saved reports, without rerunning the worker.
+        this.db.run("UPDATE worker_reports SET review_run=? WHERE review_run=?", [next.id, id]);
+        return this.get(next.id)!;
       })
       .immediate();
   }

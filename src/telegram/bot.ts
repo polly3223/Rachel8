@@ -23,6 +23,8 @@ import { getStore } from "../ai/session-store.ts";
 import { stopWork } from "../lib/runtime.ts";
 import { codexCapabilities } from "../ai/codex.ts";
 import { sendChunks } from "./delivery.ts";
+import { workerBoard } from "../lib/workers.ts";
+import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-chunks.ts";
 
 export type BotContext = Context;
 export const bot = new Bot<BotContext>(env.TELEGRAM_BOT_TOKEN);
@@ -44,10 +46,11 @@ bot.command("refresh", (ctx) => {
   getStore().enqueue("telegram", String(ctx.chat.id), { messages: [], refresh: true });
   return ctx.reply("Context refresh queued. I’ll save a handoff before switching threads.");
 });
-bot.command("status", (ctx) => {
-  const runs = getStore().recent(8);
-  return ctx.reply(
-    runs.length
+bot.command("status", async (ctx) => {
+  const store = getStore();
+  const active = store.db.query("SELECT * FROM runs WHERE state IN ('queued','running','steering','pending_message') ORDER BY id").all() as ReturnType<typeof store.recent>;
+  const runs = [...active, ...store.recent(8).filter((r) => !active.some((a) => a.id === r.id))];
+  const text = runs.length
       ? runs
           .map((r) => {
             const usage = r.usage
@@ -56,9 +59,11 @@ bot.command("status", (ctx) => {
             return `#${r.id} ${r.key}: ${r.state} · ${r.activity}${usage?.last?.totalTokens ? ` · last request ${usage.last.totalTokens.toLocaleString()} tokens` : ""}${r.attempts ? ` · delivery attempts ${r.attempts}/6` : ""}`;
           })
           .join("\n")
-      : "No work queued.",
-  );
+      : "No work queued.";
+  for (const chunk of splitTelegramMessage(text, TELEGRAM_MESSAGE_LIMIT)) await ctx.reply(chunk);
 });
+bot.command("workers", (ctx) => sendChunks(ctx.chat.id,
+  `Managed workers (worker ID and run ID are distinct):\n${JSON.stringify(workerBoard(getStore(), String(ctx.chat.id)), null, 2)}`));
 bot.command("stop", (ctx) => {
   const requested = ctx.match.trim();
   const current = getStore()

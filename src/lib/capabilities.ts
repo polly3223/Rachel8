@@ -3,11 +3,13 @@ import { join } from "node:path";
 import { copyFile, mkdir } from "node:fs/promises";
 import { env } from "../config/env.ts";
 import { getStore } from "../ai/session-store.ts";
-import { memoryTopics, searchMemory, loadContext, redactSecrets } from "./memory.ts";
+import { memoryTopics, searchMemory, loadContext, redactSecrets, redactRecord } from "./memory.ts";
 import { sendArtifact } from "../telegram/delivery.ts";
 import type { TaskType } from "./work-store.ts";
+import { manageWorker, workerToolSchema } from "./workers.ts";
 
 const schemas = {
+  rachel_workers: workerToolSchema,
   rachel_tasks: z.object({
     action: z.enum(["add", "list", "runs", "cancel", "checkpoint"]),
     name: z.string().optional(),
@@ -26,6 +28,7 @@ const schemas = {
   }),
 };
 const descriptions = {
+  rachel_workers: "Manage durable background workers as chief of staff: start a named bounded assignment, list/status, message with a stable requestId, or stop. Results return to this conversation for review. Reuse names/requestIds when retrying an uncertain tool call. No automatic retry of interrupted work; do not wait or poll for completion. Requires an active chief conversation.",
   rachel_tasks:
     "Schedule validated tasks (new cron schedules default to Europe/Rome), inspect runs, cancel a schedule, or save this run's checkpoint. Check completed actions before resuming. External actions still require the owner's authorization.",
   rachel_memory:
@@ -45,10 +48,12 @@ export async function executeCapability(
   runId?: number,
 ): Promise<unknown> {
   const store = getStore();
+  if (name === "rachel_workers") return manageWorker(store, runId, redactRecord(input));
   if (name === "rachel_tasks") {
     const args = schemas.rachel_tasks.parse(input);
     switch (args.action) {
       case "add":
+        if (runId && store.get(runId)?.worker_id) throw new Error("Managed workers must return follow-up needs to their chief, not self-schedule");
         return store.add(args.name ?? "", args.type as TaskType, args.data, args);
       case "list":
         return store.db
@@ -90,6 +95,7 @@ export async function executeCapability(
         : memoryTopics();
   }
   if (name === "rachel_artifact") {
+    if (runId && store.get(runId)?.worker_id) throw new Error("Return the artifact path to the chief for review and delivery");
     const args = schemas.rachel_artifact.parse(input);
     return {
       messageId: await sendArtifact(

@@ -29,6 +29,7 @@ export function buildHelpText(): string {
     "/start - Start Rachel.",
     "/help - Show this guide.",
     "/status - Show active work and recent results.",
+    "/workers - Show the persistent worker roster and review status.",
     "/stop [work ID] - Stop this chat or a selected job; cancel queued chat requests.",
     "/resume <work ID> - Recover interrupted work after checking completed actions.",
     "/answer <text> - Answer a question from an active task.",
