@@ -36,6 +36,35 @@ describe("Linear OAuth parsing", () => {
       .toThrow("does not belong");
   });
 
+  test.each(["code=test-code&state=test-state", "error=access_denied&state=test-state"])(
+    "accepts the current root callback with %s",
+    (result) => {
+      const rootCallback = "http://127.0.0.1:39487/callback";
+      const details = extractLinearOAuthDetails(
+        `https://mcp.linear.app/authorize?redirect_uri=${encodeURIComponent(rootCallback)}`,
+      );
+      const value = `${rootCallback}?${result}&iss=https%3A%2F%2Fmcp.linear.app`;
+      expect(validateLinearCallback(value, details.expectedCallback).toString()).toBe(value);
+    },
+  );
+
+  test.each([
+    "http://127.0.0.1:39488/callback",
+    "http://127.0.0.1:39487/callback/other",
+    "http://localhost:39487/callback",
+  ])("rejects a root callback from a different active login: %s", (expected) => {
+    expect(() => validateLinearCallback("http://127.0.0.1:39487/callback?code=test", expected))
+      .toThrow("does not belong");
+  });
+
+  test.each(["/callback-other", "/callbacks", "/callback%2Fother", "/other"])(
+    "rejects lookalike callback paths: %s",
+    (path) => {
+      expect(() => validateLinearCallback(`http://127.0.0.1:39487${path}?code=test`))
+        .toThrow("not a valid");
+    },
+  );
+
   test("blocks non-local URLs and callbacks without OAuth results", () => {
     expect(() => validateLinearCallback("https://example.com/callback/x?code=abc"))
       .toThrow("not a valid");

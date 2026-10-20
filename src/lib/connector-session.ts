@@ -108,7 +108,7 @@ export function validateLinearCallback(value: string, expectedCallback?: string)
   const callback = new URL(value.trim());
   const localHost = callback.hostname === "127.0.0.1" || callback.hostname === "localhost";
   const hasResult = callback.searchParams.has("code") || callback.searchParams.has("error");
-  if (callback.protocol !== "http:" || !localHost || !callback.port || !callback.pathname.startsWith("/callback/") || !hasResult) {
+  if (callback.protocol !== "http:" || !localHost || !callback.port || !/^\/callback(?:\/|$)/.test(callback.pathname) || !hasResult) {
     throw new Error("That is not a valid Linear OAuth callback URL.");
   }
   if (expectedCallback && `${callback.origin}${callback.pathname}` !== expectedCallback) {
