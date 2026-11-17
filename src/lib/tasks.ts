@@ -88,13 +88,20 @@ export class WorkRunner {
     if (!this.delivering) void this.deliver();
   }
   async deliver(): Promise<void> {
+    if (this.delivering) return;
     this.delivering = true;
     try {
+      const blocked = new Set<number>();
       for (const run of this.store.pendingDelivery()) {
         if (this.stopped) break;
+        const chat = run.kind === "telegram" ? Number(run.key) : this.hooks.owner;
+        if (blocked.has(chat)) continue;
+        if (run.next_delivery > Date.now()) {
+          blocked.add(chat);
+          continue;
+        }
         try {
           const output = JSON.parse(run.result!) as Output;
-          const chat = run.kind === "telegram" ? Number(run.key) : this.hooks.owner;
           const items: Delivery[] = run.delivery
             ? JSON.parse(run.delivery)
             : [
@@ -123,6 +130,7 @@ export class WorkRunner {
             run.id,
           ]);
         } catch (error) {
+          blocked.add(chat);
           this.store.db.run(
             "UPDATE runs SET attempts=attempts+1,next_delivery=?,delivery_error=? WHERE id=?",
             [

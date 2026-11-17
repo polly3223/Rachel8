@@ -194,6 +194,35 @@ describe("durable work", () => {
     expect(store.get(1)?.delivered).toBe(-1);
     await runner.shutdown();
   });
+  test("delivery backoff holds later replies to the same destination across restart", async () => {
+    const path = `${Bun.env["SHARED_FOLDER_PATH"]}/ordered-delivery.db`;
+    const original = new WorkStore(path);
+    const first = original.enqueue("task", "scheduled:example", {});
+    original.finish(first.id, "succeeded", { text: "first" });
+    for (const [chat, text] of [["101", "second"], ["202", "other"]] as const) {
+      const run = original.enqueue("telegram", chat, {});
+      original.finish(run.id, "succeeded", { text });
+    }
+    const sent: string[] = [];
+    let calls = 0;
+    const hooks = { owner: 101, execute: async () => { throw Error("Unexpected execution"); },
+      send: async (item: { text?: string }) => {
+        if (++calls === 1) throw Error("Temporary send failure");
+        sent.push(item.text!);
+        return calls;
+      } };
+    await new WorkRunner(original, hooks).deliver();
+    expect(sent).toEqual(["other"]);
+    original.db.close();
+    const store = new WorkStore(path);
+    const runner = new WorkRunner(store, hooks);
+    await runner.deliver();
+    expect(sent).toEqual(["other"]);
+    store.db.run("UPDATE runs SET next_delivery=0 WHERE id=?", [first.id]);
+    await runner.deliver();
+    expect(sent).toEqual(["other", "first", "second"]);
+    store.db.close();
+  });
   test("a saved rich table above 4096 characters is delivered whole with one receipt", async () => {
     const store = fresh();
     const run = store.enqueue("telegram", "123456789", {});

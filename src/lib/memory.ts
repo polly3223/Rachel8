@@ -82,21 +82,31 @@ export async function memoryTopics(): Promise<string[]> {
     .sort();
 }
 export async function searchMemory(query: string): Promise<{ topic: string; excerpt: string }[]> {
-  const words = query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];
+  const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu))].slice(0, 32);
+  if (!words.length) return [];
   const results = [];
   for (const topic of await memoryTopics()) {
     const text = await loadContext(topic);
-    const index = text
-      .toLowerCase()
-      .search(new RegExp(words.map((w) => w.replace(/[^a-z0-9]/g, "")).join("|") || "$^"));
-    if (index >= 0)
-      results.push({
-        topic,
-        excerpt: redactSecrets(text.slice(Math.max(0, index - 150), index + 1200)),
-      });
-    if (results.length === 8) break;
+    const lower = text.toLowerCase();
+    const name = topic.split(/[-_.]/);
+    const titleHits = words.filter(w => name.includes(w));
+    const bodyHits = words.filter(w => !name.includes(w) && lower.includes(w));
+    const hits = titleHits.length + bodyHits.length;
+    if (!hits) continue;
+    // Anchor near the subject of the question, even when the file starts with a project overview.
+    const anchor = bodyHits[0] ?? titleHits[0];
+    const index = Math.max(0, anchor ? lower.indexOf(anchor) : 0);
+    const mentions = bodyHits.reduce((n, w) => n + lower.split(w).length - 1, 0);
+    const density = mentions / Math.max(1, Math.sqrt(text.length));
+    results.push({
+      topic, hits, titleHits: titleHits.length, density,
+      exact: topic === query.trim().toLowerCase(),
+      excerpt: redactSecrets(text.slice(Math.max(0, index - 150), index + 1200)),
+    });
   }
-  return results;
+  return results.sort((a, b) => Number(b.exact) - Number(a.exact) || b.hits - a.hits ||
+    b.titleHits - a.titleHits || b.density - a.density || a.topic.localeCompare(b.topic))
+    .slice(0, 8).map(({ topic, excerpt }) => ({ topic, excerpt }));
 }
 export async function buildSystemPromptWithMemory(
   prompt: string,
@@ -104,11 +114,16 @@ export async function buildSystemPromptWithMemory(
   query = "",
 ): Promise<string> {
   const topics = await memoryTopics();
-  const selected = topics
-    .filter((topic) => query.toLowerCase().includes(topic) || key.endsWith(`:${topic}`))
-    .slice(0, 2);
+  const terms = new Set(query.toLowerCase().match(/[\p{L}\p{N}]+(?:[-_.][\p{L}\p{N}]+)*/gu));
+  const selected = topics.filter(topic => key.endsWith(`:${topic}`));
+  selected.push(...topics.filter(topic => terms.has(topic) && !selected.includes(topic)));
+  // A customer or project may be mentioned without its topic prefix.
+  for (const topic of topics) {
+    const alias = topic.slice(topic.indexOf("-") + 1);
+    if (alias.length >= 4 && terms.has(alias) && !selected.includes(topic)) selected.push(topic);
+  }
   const extracts = await Promise.all(
-    selected.map(
+    selected.slice(0, 2).map(
       async (topic) => `${topic}:\n${redactSecrets((await loadContext(topic)).slice(0, 7000))}`,
     ),
   );

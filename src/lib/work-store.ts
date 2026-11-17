@@ -284,12 +284,12 @@ export class WorkStore {
   recent(limit = 10): Work[] {
     return this.db.query("SELECT * FROM runs ORDER BY id DESC LIMIT ?").all(limit) as Work[];
   }
-  pendingDelivery(now = Date.now()): Work[] {
+  pendingDelivery(): Work[] {
     return this.db
       .query(
-        "SELECT * FROM runs WHERE result IS NOT NULL AND delivered>=0 AND attempts<6 AND next_delivery<=? ORDER BY id",
+        "SELECT * FROM runs WHERE result IS NOT NULL AND delivered>=0 AND attempts<6 ORDER BY id",
       )
-      .all(now) as Work[];
+      .all() as Work[];
   }
   progress(id: number, activity: string, usage?: unknown): void {
     this.db.run("UPDATE runs SET activity=?,heartbeat=?,usage=COALESCE(?,usage) WHERE id=?", [
