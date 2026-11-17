@@ -169,7 +169,7 @@ export async function runCodex(options: TurnOptions, connection?: RpcClient): Pr
   try {
     const common = {
       cwd: process.cwd(),
-      model: env.CODEX_MODEL ?? "gpt-6-astra",
+      model: env.CODEX_MODEL ?? "gpt-6.2-astra",
       sandbox: "danger-full-access",
       approvalPolicy: "never",
       developerInstructions: options.instructions,
