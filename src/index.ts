@@ -1,4 +1,3 @@
-import type { Update } from "grammy/types";
 import { bot } from "./telegram/bot.ts";
 import { env } from "./config/env.ts";
 import { existsSync } from "node:fs";
@@ -10,9 +9,8 @@ import { BOT_COMMANDS } from "./telegram/commands.ts";
 import { startRuntime, shutdownRuntime } from "./lib/runtime.ts";
 import { sendChunks } from "./telegram/delivery.ts";
 
-const webhook = Bun.env["RACHEL_CLOUD"] === "true";
-if (existsSync("/.dockerenv") && !webhook)
-  throw new Error("Container polling is disabled: set RACHEL_CLOUD=true");
+if (existsSync("/.dockerenv") || Bun.env["RACHEL_CLOUD"] === "true")
+  throw new Error("Rachel8 polling requires a standalone host and its own Telegram bot.");
 await initializeMemorySystem();
 await bot.init();
 await bot.api
@@ -30,7 +28,7 @@ async function shutdown(): Promise<void> {
   await Promise.allSettled([
     shutdownRuntime(),
     cancelConnectorSession({ notify: false }),
-    webhook ? Promise.resolve() : bot.stop(),
+    bot.stop(),
   ]);
   process.exit(0);
 }
@@ -43,21 +41,4 @@ if (Date.now() - lastStartup > 30_000) {
     .then(() => Bun.write(startupLock, String(Date.now())))
     .catch(() => logger.warn("Startup notification failed"));
 }
-if (webhook) {
-  Bun.serve({
-    port: Number(Bun.env["WEBHOOK_PORT"] ?? "8443"),
-    async fetch(request) {
-      const path = new URL(request.url).pathname;
-      if (path === "/health") return Response.json({ status: "ok" });
-      if (request.method === "POST" && path === "/webhook") {
-        try {
-          await bot.handleUpdate((await request.json()) as Update);
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ ok: false }, { status: 500 });
-        }
-      }
-      return new Response("Not found", { status: 404 });
-    },
-  });
-} else await bot.start({ onStart: () => logger.info("Rachel8 is running (polling mode)") });
+await bot.start({ onStart: () => logger.info("Rachel8 is running (polling mode)") });
