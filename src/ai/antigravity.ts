@@ -85,7 +85,13 @@ export async function runAntigravity(options: TurnOptions, connection?: RpcClien
     connectStdio(
       "Antigravity",
       await resolveCliPath("antigravity"),
-      ["acp", "--disable-telemetry"],
+      [
+        "acp",
+        "--disable-telemetry",
+        ...(Bun.env["ANTIGRAVITY_AUTO_APPROVE_TOOLS"] === "true"
+          ? ["--dangerously-skip-permissions"]
+          : []),
+      ],
       options.signal,
     );
   let sessionId: string | undefined;
