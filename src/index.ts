@@ -5,7 +5,7 @@ import { initializeMemorySystem } from "./lib/memory.ts";
 import { logger } from "./lib/logger.ts";
 import { setLoginNotifier, shutdownLoginSession } from "./lib/login-session.ts";
 import { cancelConnectorSession, setConnectorNotifier } from "./lib/connector-session.ts";
-import { BOT_COMMANDS } from "./telegram/commands.ts";
+import { botCommandsForProvider } from "./telegram/commands.ts";
 import { startRuntime, shutdownRuntime } from "./lib/runtime.ts";
 import { sendChunks } from "./telegram/delivery.ts";
 
@@ -14,7 +14,7 @@ if (existsSync("/.dockerenv") || Bun.env["RACHEL_CLOUD"] === "true")
 await initializeMemorySystem();
 await bot.init();
 await bot.api
-  .setMyCommands([...BOT_COMMANDS])
+  .setMyCommands([...botCommandsForProvider(env.AI_PROVIDER)])
   .catch(() => logger.warn("Could not sync Telegram command menu"));
 const notify = (text: string) => sendChunks(env.OWNER_TELEGRAM_USER_ID, text, false);
 setLoginNotifier(notify);

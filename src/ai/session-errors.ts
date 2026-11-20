@@ -3,8 +3,11 @@ export function isContextOverflowError(message: string): boolean {
   return [
     "context window",
     "context length",
+    "context_length_exceeded",
     "maximum context",
     "too many tokens",
+    "token count exceeds",
+    "exceeds the maximum number of tokens",
     "prompt is too long",
     "request too large",
   ].some((pattern) => normalized.includes(pattern));

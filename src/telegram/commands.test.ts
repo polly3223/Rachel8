@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { REASONING_EFFORTS } from "../lib/reasoning-effort.ts";
-import { BOT_COMMANDS, EFFORT_SET_COMMANDS, buildHelpText } from "./commands.ts";
+import { BOT_COMMANDS, EFFORT_SET_COMMANDS, botCommandsForProvider, buildHelpText } from "./commands.ts";
 
 describe("BOT_COMMANDS", () => {
   test("contains the core commands and one-tap effort commands", () => {
@@ -13,6 +13,24 @@ describe("BOT_COMMANDS", () => {
       ...REASONING_EFFORTS.map((effort) => `effort_${effort}`),
     ]);
     expect(EFFORT_SET_COMMANDS.map(({ effort }) => effort)).toEqual([...REASONING_EFFORTS]);
+  });
+
+  test("omits unsupported max/ultra effort commands for Antigravity", () => {
+    const commands = botCommandsForProvider("antigravity").map(({ command }) => command);
+    expect(commands).toEqual([
+      "help",
+      "refresh",
+      "effort",
+      "effort_low",
+      "effort_medium",
+      "effort_high",
+      "effort_xhigh",
+    ]);
+    const help = buildHelpText("antigravity");
+    expect(help).toContain("/effort_xhigh");
+    expect(help).not.toContain("/effort_max");
+    expect(help).not.toContain("/effort_ultra");
+    expect(help).toContain("Codex or Antigravity");
   });
 
   test("help documents every visible command and advanced commands", () => {

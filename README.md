@@ -222,7 +222,7 @@ The Codex adapter uses the documented stdio protocol, pinned to the bundled CLI 
 
 Set `AI_PROVIDER=antigravity` in the service environment and restart Rachel between jobs. To switch back, restore the previous provider and restart. Each provider resumes its own conversation IDs. Memory, work records and schedules are shared. Save any context needed from the current chat before switching. The first Antigravity turn sends the same Rachel instructions and selected memory to Google.
 
-The adapter explicitly selects Neon XHigh on new **and** resumed sessions. The supported `/effort` levels are low, medium, high and xhigh, saved separately from Codex. Text and images, tool activity, permission questions via `/answer`, cancellation and the four Rachel tools run through ACP. Follow-up messages arriving during a turn queue for the next turn. Codex plugins and their credentials remain provider-specific. Review any schedules that need those plugins before a trial.
+The adapter explicitly selects Neon XHigh (or optional `ANTIGRAVITY_MODEL`) on new **and** resumed sessions, adds `SHARED_FOLDER_PATH` via `--add-dir`, and keeps `systemPrompt.append` static on `session/new` so resumed turns preserve prompt caching. The supported `/effort` levels are low, medium, high and xhigh, saved separately from Codex. Text and images, live progress updates, mid-turn steering, clean `session/cancel`, permission questions via `/answer` (or `ANTIGRAVITY_AUTO_APPROVE_TOOLS=true` to auto-approve tools), and the four Rachel tools run through ACP. Codex plugins and their credentials remain provider-specific. Review any schedules that need those plugins before a trial.
 
 ## How it works
 

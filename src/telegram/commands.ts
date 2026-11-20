@@ -1,3 +1,4 @@
+import type { AIProvider } from "../ai/provider.ts";
 import { REASONING_EFFORTS, type ReasoningEffort } from "../lib/reasoning-effort.ts";
 
 const EFFORT_DESCRIPTIONS: Record<ReasoningEffort, string> = {
@@ -15,14 +16,28 @@ export const EFFORT_SET_COMMANDS = REASONING_EFFORTS.map((effort) => ({
   effort,
 }));
 
-export const BOT_COMMANDS = [
-  { command: "help", description: "Explain all commands" },
-  { command: "refresh", description: "Save context and start a fresh thread" },
-  { command: "effort", description: "Show current thinking effort" },
-  ...EFFORT_SET_COMMANDS.map(({ command, description }) => ({ command, description })),
-];
+function effortCommandsForProvider(provider?: AIProvider) {
+  return provider === "antigravity"
+    ? EFFORT_SET_COMMANDS.filter(({ effort }) => effort !== "max" && effort !== "ultra")
+    : EFFORT_SET_COMMANDS;
+}
 
-export function buildHelpText(): string {
+export function botCommandsForProvider(provider?: AIProvider) {
+  return [
+    { command: "help", description: "Explain all commands" },
+    { command: "refresh", description: "Save context and start a fresh thread" },
+    { command: "effort", description: "Show current thinking effort" },
+    ...effortCommandsForProvider(provider).map(({ command, description }) => ({
+      command,
+      description,
+    })),
+  ];
+}
+
+export const BOT_COMMANDS = botCommandsForProvider();
+
+export function buildHelpText(provider?: AIProvider): string {
+  const effortCommands = effortCommandsForProvider(provider);
   return [
     "Rachel commands",
     "",
@@ -35,13 +50,13 @@ export function buildHelpText(): string {
     "/answer <text> - Answer a question from an active task.",
     "/retry_delivery <work ID> - Retry sending a saved result without rerunning it.",
     "/capabilities - Discover configured connectors and tool availability.",
-    "Messages sent during a Codex task steer it. Other providers queue them.",
+    "Messages sent during a Codex or Antigravity task steer it. Other providers queue them.",
     "/refresh - Save the active work, start a fresh AI thread, and load the handoff.",
     "",
     "AI provider login",
     "/login [codex|claudecode|antigravity] - Sign in. Without an argument, uses the configured provider.",
     "/login_status [codex|claudecode|antigravity] - Check sign-in status.",
-    "/login_code <code> - Submit a code when Claude asks for one.",
+    "/login_code <code> - Submit a code when Claude or Antigravity asks for one.",
     "/login_cancel - Cancel an active provider login.",
     "",
     "MCP connectors",
@@ -53,7 +68,7 @@ export function buildHelpText(): string {
     "",
     "Thinking effort",
     "/effort - Show the current persistent effort.",
-    ...EFFORT_SET_COMMANDS.map(
+    ...effortCommands.map(
       ({ command, description }) =>
         `/${command} - ${description}. Applies from the next turn.`,
     ),

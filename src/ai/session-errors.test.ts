@@ -21,6 +21,7 @@ describe("isContextOverflowError", () => {
   test("recognizes common context limit errors", () => {
     expect(isContextOverflowError("maximum context length exceeded")).toBe(true);
     expect(isContextOverflowError("Prompt is too long")).toBe(true);
+    expect(isContextOverflowError("The input token count exceeds the maximum number of tokens allowed")).toBe(true);
   });
 
   test("does not match ordinary context references", () => {

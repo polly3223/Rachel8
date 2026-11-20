@@ -18,6 +18,8 @@ export const envSchema = z.object({
     .default("codex")
     .transform((value) => (value === "claude" ? "claudecode" : value)),
   CODEX_MODEL: z.string().optional(),
+  ANTIGRAVITY_MODEL: z.string().optional(),
+  ANTIGRAVITY_AUTO_APPROVE_TOOLS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -4,12 +4,21 @@ import { join } from "node:path";
 import { z } from "zod";
 import { env } from "../config/env.ts";
 import { toolDefinitions } from "../lib/capabilities.ts";
-import { getReasoningEffort } from "../lib/reasoning-effort.ts";
+import { getReasoningEffort, type ReasoningEffort } from "../lib/reasoning-effort.ts";
 import { resolveCliPath } from "./cli-path.ts";
 import { connectStdio, type RpcClient } from "./rpc.ts";
 import type { Input, TurnOptions } from "./turn.ts";
 
 export class AntigravitySessionUnavailable extends Error {}
+
+export function resolveAntigravityModel(
+  effort: ReasoningEffort,
+  configured = Bun.env["ANTIGRAVITY_MODEL"]?.trim(),
+): string {
+  if (!configured) return `gemini-4-neon-${effort}`;
+  if (/(?:-(?:low|medium|high|xhigh)|orchestrator)/.test(configured)) return configured;
+  return `${configured}-${effort}`;
+}
 
 function startToolBridge(tool: NonNullable<TurnOptions["tool"]>) {
   const dir = mkdtempSync(join(tmpdir(), "rachel-acp-"));
@@ -56,13 +65,18 @@ async function promptBlocks(input: Input) {
         const file = Bun.file(path);
         return {
           type: "image",
-          mimeType: file.type,
+          mimeType: file.type.split(";")[0]?.trim() || "image/jpeg",
           data: (await file.bytes()).toBase64(),
         };
       }),
     )),
   ];
 }
+
+type PromptResult = {
+  stopReason: string;
+  usage?: { totalTokens?: number };
+};
 
 const updateSchema = z.object({
   sessionId: z.string(),
@@ -88,17 +102,46 @@ export async function runAntigravity(options: TurnOptions, connection?: RpcClien
       [
         "acp",
         "--disable-telemetry",
+        "--add-dir",
+        env.SHARED_FOLDER_PATH,
         ...(Bun.env["ANTIGRAVITY_AUTO_APPROVE_TOOLS"] === "true"
           ? ["--dangerously-skip-permissions"]
           : []),
       ],
-      options.signal,
     );
   let sessionId: string | undefined;
   let text = "",
-    permissionPending = false;
+    permissionPending = false,
+    acceptingSteer = false;
   let progress = Promise.resolve();
   let bridge: ReturnType<typeof startToolBridge> | undefined;
+  let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+  const flushProgress = () => {
+    const message = text.trim();
+    text = "";
+    if (!message || !options.onProgress) return;
+    progress = progress.then(() => options.onProgress!(message));
+    void progress.catch(() => {});
+  };
+  const abort = () => {
+    acceptingSteer = false;
+    if (sessionId) {
+      try {
+        client.send({ method: "session/cancel", params: { sessionId } });
+      } catch {
+        client.close(new DOMException("Stopped", "AbortError"));
+        return;
+      }
+      cancelTimer = setTimeout(
+        () => client.close(new DOMException("Stopped", "AbortError")),
+        1500,
+      );
+      cancelTimer.unref?.();
+    } else {
+      client.close(new DOMException("Stopped", "AbortError"));
+    }
+  };
+  options.signal.addEventListener("abort", abort, { once: true });
   client.onEvent = (method, params) => {
     if (method !== "session/update") return;
     const event = updateSchema.parse(params);
@@ -110,12 +153,7 @@ export async function runAntigravity(options: TurnOptions, connection?: RpcClien
     }
     if (u.sessionUpdate === "tool_call") {
       options.onActivity?.(`Using tool (${u.kind ?? "other"})`);
-      if (text.trim() && options.onProgress) {
-        const message = text.trim();
-        text = "";
-        progress = progress.then(() => options.onProgress!(message));
-        void progress.catch(() => {});
-      }
+      flushProgress();
     }
   };
   client.onRequest = async (method, params) => {
@@ -151,21 +189,17 @@ export async function runAntigravity(options: TurnOptions, connection?: RpcClien
         "This Antigravity CLI cannot apply Rachel’s instructions. Update agy and try again.",
       );
     if (options.tool) bridge = startToolBridge(options.tool);
-    const common = {
+    const base = {
       cwd: process.cwd(),
       mcpServers: bridge ? [bridge.config] : [],
-      _meta: {
-        antigravity: {
-          systemPrompt: { append: options.instructions },
-          eagerMcpServers: ["rachel"],
-        },
-      },
     };
     if (options.sessionId) {
+      // Omit systemPrompt on resume: ACP keeps the session/new append and preserves prompt caching.
       try {
         await client.call("session/resume", {
-          ...common,
+          ...base,
           sessionId: options.sessionId,
+          _meta: { antigravity: { eagerMcpServers: ["rachel"] } },
         });
       } catch (error) {
         if (/session not found|conversation not found|trajectory not found/i.test(String(error)))
@@ -178,27 +212,63 @@ export async function runAntigravity(options: TurnOptions, connection?: RpcClien
     } else {
       sessionId = z
         .object({ sessionId: z.string().min(1) })
-        .parse(await client.call("session/new", common)).sessionId;
+        .parse(
+          await client.call("session/new", {
+            ...base,
+            _meta: {
+              antigravity: {
+                systemPrompt: { append: options.instructions },
+                eagerMcpServers: ["rachel"],
+              },
+            },
+          }),
+        ).sessionId;
     }
     const effort = await getReasoningEffort(env.SHARED_FOLDER_PATH, "xhigh", "antigravity");
     await client.call("session/set_model", {
       sessionId,
-      modelId: `gemini-4-neon-${effort}`,
+      modelId: resolveAntigravityModel(effort),
     });
     options.onSession(sessionId);
     const prompt = await promptBlocks(options.input);
     options.signal.throwIfAborted();
-    const result = await client.call<{
-      stopReason: string;
-      usage?: { totalTokens?: number };
-    }>("session/prompt", { sessionId, prompt }, 0);
+    const sendPrompt = (blocks: Awaited<ReturnType<typeof promptBlocks>>) =>
+      client.call<PromptResult>("session/prompt", { sessionId, prompt: blocks }, 0);
+    let activePrompt = sendPrompt(prompt);
+    acceptingSteer = true;
+    options.onControl?.(async (steerInput) => {
+      if (!acceptingSteer || options.signal.aborted) throw new Error("No active turn");
+      const blocks = await promptBlocks(steerInput);
+      if (!acceptingSteer || options.signal.aborted) throw new Error("No active turn");
+      // Flush pre-steer commentary before sending `next` so chunks from `next` are never cleared.
+      flushProgress();
+      const previous = activePrompt;
+      const next = sendPrompt(blocks);
+      void next.catch(() => {});
+      activePrompt = next;
+      // ACP hands off the turn by resolving `previous` immediately when `next` is accepted.
+      await Promise.race([previous, next]);
+    });
+    let result!: PromptResult;
+    while (true) {
+      const current = activePrompt;
+      result = await current;
+      if (activePrompt === current) {
+        acceptingSteer = false;
+        break;
+      }
+    }
     if (result.usage) options.onActivity?.("Finishing", { last: result.usage });
     await progress;
+    if (options.signal.aborted) throw new DOMException("Stopped", "AbortError");
     if (result.stopReason !== "end_turn")
       throw new Error(`Antigravity stopped: ${result.stopReason}`);
     if (!text.trim()) throw new Error("Antigravity returned no answer");
     return { text: text.trim() };
   } finally {
+    acceptingSteer = false;
+    clearTimeout(cancelTimer);
+    options.signal.removeEventListener("abort", abort);
     client.close();
     await bridge?.close();
   }

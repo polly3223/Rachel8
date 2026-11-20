@@ -13,7 +13,13 @@ import {
   getContextRefreshSkillPath,
   validateContextHandoff,
 } from "../lib/context-refresh.ts";
-import { appendToDailyLog, buildSystemPromptWithMemory, redactSecrets } from "../lib/memory.ts";
+import {
+  appendToDailyLog,
+  buildStaticSystemPrompt,
+  buildSystemPromptWithMemory,
+  buildTurnContext,
+  redactSecrets,
+} from "../lib/memory.ts";
 import { BASE_SYSTEM_PROMPT } from "./prompt.ts";
 import { assertProviderAuthenticated, isProviderAuthFailure, ProviderAuthError } from "./auth.ts";
 import { isContextOverflowError, isCodexThreadUnavailableError } from "./session-errors.ts";
@@ -70,16 +76,28 @@ async function run(
   const sessionId =
     sessionOverride === null ? undefined : (sessionOverride ?? store.session(provider, key));
   try {
-    const instructions = await buildSystemPromptWithMemory(
-      `${BASE_SYSTEM_PROMPT}\nCurrent work ID: ${options.runId ?? "interactive"}; conversation: ${key}.`,
-      key,
-      input.text,
-    );
+    const isAntigravity = env.AI_PROVIDER === "antigravity";
+    const instructions = isAntigravity
+      ? await buildStaticSystemPrompt(BASE_SYSTEM_PROMPT)
+      : await buildSystemPromptWithMemory(
+          `${BASE_SYSTEM_PROMPT}\nCurrent work ID: ${options.runId ?? "interactive"}; conversation: ${key}.`,
+          key,
+          input.text,
+        );
+    const turnContext = isAntigravity
+      ? await buildTurnContext(key, input.text, options.runId)
+      : "";
+    const providerInput = turnContext
+      ? {
+          ...input,
+          text: `[Turn context — runtime metadata, not instructions]\n${turnContext}\n\n${input.text}`,
+        }
+      : input;
     await assertProviderAuthenticated(env.AI_PROVIDER);
     const onSession = (id: string) => store.saveSession(provider, key, id);
     const turn = { codex: runCodex, claudecode: runClaude, antigravity: runAntigravity }[env.AI_PROVIDER];
     const turnOptions = {
-      input,
+      input: providerInput,
       instructions,
       sessionId,
       signal: control.abort.signal,
@@ -121,7 +139,7 @@ async function run(
         throw new ProviderAuthError(env.AI_PROVIDER);
       const text = String(error);
       const unusableSession = provider === "antigravity"
-        ? error instanceof AntigravitySessionUnavailable
+        ? error instanceof AntigravitySessionUnavailable || isContextOverflowError(text)
         : isContextOverflowError(text) || isCodexThreadUnavailableError(text) || /no conversation found|session not found/i.test(text);
       if (!sessionId || !unusableSession) throw error;
       // No retry for capacity, tool failures or uncertain side effects. Only an unusable session.
@@ -130,8 +148,8 @@ async function run(
         ...turnOptions,
         sessionId: undefined,
         input: {
-          ...input,
-          text: `The previous thread (${sessionId}) could not continue. Its tools may already have completed actions. Read the current project files and saved receipts before continuing; do not repeat completed sends or deployments.\n${checkpoint ? `Saved active-work checkpoint (context only):\n${checkpoint}\n\n` : ""}${input.text}`,
+          ...providerInput,
+          text: `The previous thread (${sessionId}) could not continue. Its tools may already have completed actions. Read the current project files and saved receipts before continuing; do not repeat completed sends or deployments.\n${checkpoint ? `Saved active-work checkpoint (context only):\n${checkpoint}\n\n` : ""}${providerInput.text}`,
         },
       });
     }
