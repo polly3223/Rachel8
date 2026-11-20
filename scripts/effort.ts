@@ -9,7 +9,7 @@ import {
 const [action = "get", requested] = Bun.argv.slice(2);
 
 if (action === "get") {
-  console.log(await getReasoningEffort(env.SHARED_FOLDER_PATH, Bun.env["CODEX_REASONING_EFFORT"]));
+  console.log(await getReasoningEffort(env.SHARED_FOLDER_PATH, env.AI_PROVIDER === "antigravity" ? "xhigh" : Bun.env["CODEX_REASONING_EFFORT"], env.AI_PROVIDER));
   process.exit(0);
 }
 
@@ -19,7 +19,7 @@ if (action === "set" && requested) {
     console.error(`Invalid effort. Choose one of: ${REASONING_EFFORTS.join(", ")}`);
     process.exit(1);
   }
-  await setReasoningEffort(env.SHARED_FOLDER_PATH, effort);
+  await setReasoningEffort(env.SHARED_FOLDER_PATH, effort, env.AI_PROVIDER);
   console.log(effort);
   process.exit(0);
 }

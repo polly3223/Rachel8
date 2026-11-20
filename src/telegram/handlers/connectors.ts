@@ -1,4 +1,5 @@
 import type { BotContext } from "../bot.ts";
+import { env } from "../../config/env.ts";
 import { commandArg } from "../../lib/command.ts";
 import {
   cancelConnectorSession,
@@ -10,6 +11,10 @@ import { errorMessage } from "../../lib/errors.ts";
 import { logger } from "../../lib/logger.ts";
 
 async function replyWithErrors(ctx: BotContext, action: () => Promise<string>): Promise<void> {
+  if (env.AI_PROVIDER === "antigravity") {
+    await ctx.reply("These commands manage Codex plugins. Antigravity has separate MCP settings (agy mcp).");
+    return;
+  }
   try {
     await ctx.reply(await action());
   } catch (error) {

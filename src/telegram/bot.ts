@@ -107,6 +107,8 @@ bot.command("answer", (ctx) =>
 );
 bot.command("capabilities", (ctx) => {
   // Read-only discovery may wait on remote MCPs; it must not block control intake.
+  if (env.AI_PROVIDER === "antigravity")
+    return ctx.reply("Antigravity provides local tools plus rachel_memory, rachel_tasks, rachel_workers and rachel_artifact. See agy mcp list for additional configured servers. Codex plugins have separate credentials.");
   void codexCapabilities()
     .then((data) =>
       sendChunks(

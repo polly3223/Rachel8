@@ -1,4 +1,5 @@
 import { env } from "../config/env.ts";
+import { runAntigravity, AntigravitySessionUnavailable } from "./antigravity.ts";
 import { runClaude } from "./claude.ts";
 import { runCodex } from "./codex.ts";
 import { getStore } from "./session-store.ts";
@@ -34,7 +35,7 @@ export interface GenerateOptions {
   onProgress?: (text: string) => Promise<void>;
   onQuestion?: (text: string, options: string[]) => Promise<void>;
 }
-const provider = env.AI_PROVIDER === "codex" ? "codex" : "claude";
+const provider = env.AI_PROVIDER === "claudecode" ? "claude" : env.AI_PROVIDER;
 
 export function answerConversation(key: ConversationKey, text: string): boolean {
   const control = active.get(String(key));
@@ -76,7 +77,7 @@ async function run(
     );
     await assertProviderAuthenticated(env.AI_PROVIDER);
     const onSession = (id: string) => store.saveSession(provider, key, id);
-    const turn = env.AI_PROVIDER === "codex" ? runCodex : runClaude;
+    const turn = { codex: runCodex, claudecode: runClaude, antigravity: runAntigravity }[env.AI_PROVIDER];
     const turnOptions = {
       input,
       instructions,
@@ -119,15 +120,10 @@ async function run(
       if (isProviderAuthFailure(env.AI_PROVIDER, error))
         throw new ProviderAuthError(env.AI_PROVIDER);
       const text = String(error);
-      if (
-        !sessionId ||
-        !(
-          isContextOverflowError(text) ||
-          isCodexThreadUnavailableError(text) ||
-          /no conversation found|session not found/i.test(text)
-        )
-      )
-        throw error;
+      const unusableSession = provider === "antigravity"
+        ? error instanceof AntigravitySessionUnavailable
+        : isContextOverflowError(text) || isCodexThreadUnavailableError(text) || /no conversation found|session not found/i.test(text);
+      if (!sessionId || !unusableSession) throw error;
       // No retry for capacity, tool failures or uncertain side effects. Only an unusable session.
       const checkpoint = options.runId ? store.get(options.runId)?.checkpoint : null;
       return turn({

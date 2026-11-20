@@ -12,7 +12,11 @@ export async function handleSetEffort(
   ctx: BotContext,
   effort: ReasoningEffort,
 ): Promise<void> {
-  await setReasoningEffort(env.SHARED_FOLDER_PATH, effort);
+  if (env.AI_PROVIDER === "antigravity" && (effort === "max" || effort === "ultra")) {
+    await ctx.reply("Neon supports low, medium, high and xhigh.");
+    return;
+  }
+  await setReasoningEffort(env.SHARED_FOLDER_PATH, effort, env.AI_PROVIDER);
   await ctx.reply(`Thinking effort set to ${effort}. It will apply from the next turn.`);
 }
 
@@ -21,7 +25,8 @@ export async function handleEffort(ctx: BotContext): Promise<void> {
   if (!requested) {
     const current = await getReasoningEffort(
       env.SHARED_FOLDER_PATH,
-      Bun.env["CODEX_REASONING_EFFORT"],
+      env.AI_PROVIDER === "antigravity" ? "xhigh" : Bun.env["CODEX_REASONING_EFFORT"],
+      env.AI_PROVIDER,
     );
     await ctx.reply(`Current thinking effort: ${current}`);
     return;

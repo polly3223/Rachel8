@@ -98,6 +98,7 @@ describe("validateAiProvider", () => {
 
   test("accepts codex", () => {
     expect(validateAiProvider("codex")).toBeUndefined();
+    expect(validateAiProvider("antigravity")).toBeUndefined();
   });
 
   test("rejects empty string", () => {
@@ -105,6 +106,6 @@ describe("validateAiProvider", () => {
   });
 
   test("rejects unsupported providers", () => {
-    expect(validateAiProvider("gemini")).toBe('Use "claudecode" or "codex"');
+    expect(validateAiProvider("gemini")).toBe('Use "claudecode", "codex" or "antigravity"');
   });
 });

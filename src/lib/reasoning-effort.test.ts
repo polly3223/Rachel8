@@ -32,3 +32,14 @@ describe("reasoning effort", () => {
     expect(await getReasoningEffort(directory)).toBe("high");
   });
 });
+
+test("Antigravity effort stays independent of the Codex preference across switches", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "rachel-provider-effort-"));
+  temporaryDirectories.push(dir);
+  await setReasoningEffort(dir, "ultra");
+  expect(await getReasoningEffort(dir, "xhigh", "antigravity")).toBe("xhigh");
+  await setReasoningEffort(dir, "medium", "antigravity");
+  await expect(setReasoningEffort(dir, "max", "antigravity")).rejects.toThrow("Neon");
+  expect(await getReasoningEffort(dir)).toBe("ultra");
+  expect(await getReasoningEffort(dir, "xhigh", "antigravity")).toBe("medium");
+});

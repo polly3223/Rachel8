@@ -95,7 +95,8 @@ export async function assertProviderAuthenticated(
     return;
   }
 
-  await assertCodexAuthenticated();
+  // ACP authenticates during session creation. Avoid a separate network probe each turn.
+  if (provider === "codex") await assertCodexAuthenticated();
 }
 
 export function isProviderAuthFailure(
@@ -107,6 +108,7 @@ export function isProviderAuthFailure(
   }
 
   const msg = errorMessage(error).toLowerCase();
+  if (provider === "antigravity") return /authentication required|not (logged|signed) in|unauthenticated|please (log|sign) in/.test(msg);
 
   if (provider === "claudecode") {
     return msg.includes("not logged in") || msg.includes("run /login");
@@ -122,6 +124,11 @@ export function isProviderAuthFailure(
 export async function getProviderAuthStatus(
   provider: AIProvider = env.AI_PROVIDER,
 ): Promise<{ provider: AIProvider; loggedIn: boolean; detail: string }> {
+  if (provider === "antigravity") {
+    const { exitCode, stdout, stderr } = await runCommand([await resolveCliPath(provider), "models"]);
+    if (exitCode && !isProviderAuthFailure(provider, stdout + stderr)) throw new Error("Antigravity model discovery failed");
+    return { provider, loggedIn: exitCode === 0, detail: exitCode === 0 ? "Logged in" : "Not logged in" };
+  }
   if (provider === "claudecode") {
     const claude = await resolveCliPath("claudecode");
     const { stdout, stderr, exitCode } = await runCommand([claude, "auth", "status"]);

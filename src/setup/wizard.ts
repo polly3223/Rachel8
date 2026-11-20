@@ -21,7 +21,7 @@ intro("Rachel8 Setup");
 note(
   "This wizard will configure Rachel8.\n" +
     "You'll need a Telegram bot token.\n" +
-    "Choose Claude Code or Codex as the AI provider.\n" +
+    "Choose Claude Code, Codex or Antigravity as the AI provider.\n" +
     "Have the selected app already installed and logged in on this server first.",
 );
 
@@ -52,7 +52,7 @@ const ownerUserId = await text({
 exitIfCancelled(ownerUserId);
 
 const aiProvider = await text({
-  message: 'AI provider ("claudecode" or "codex")',
+  message: 'AI provider ("claudecode", "codex" or "antigravity")',
   placeholder: "codex",
   initialValue: "codex",
   validate: validateAiProvider,
@@ -61,6 +61,8 @@ exitIfCancelled(aiProvider);
 
 if (aiProvider === "claudecode") {
   log.info("Before starting Rachel8, make sure Claude Code is logged in: claude login");
+} else if (aiProvider === "antigravity") {
+  log.info("Install Google Antigravity CLI and sign in with agy acp --login.");
 } else {
   log.info("Before starting Rachel8, make sure Codex is logged in: bun x codex login");
 }

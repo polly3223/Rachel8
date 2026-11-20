@@ -32,6 +32,7 @@ export function setLoginNotifier(send: LoginNotifier): void {
 }
 
 async function buildCommand(provider: AIProvider): Promise<{ cmd: string; args: string[] }> {
+  if (provider === "antigravity") return { cmd: await resolveCliPath(provider), args: ["acp", "--login"] };
   if (provider === "claudecode") {
     const claude = await resolveCliPath("claudecode");
     return {
@@ -72,6 +73,18 @@ async function notify(text: string): Promise<void> {
 async function flushPromptIfReady(session: ActiveLoginSession): Promise<void> {
   if (session.promptSent) return;
 
+  if (session.provider === "antigravity") {
+    if (!session.output.includes("Then paste the authorization code")) return;
+    const url = session.output.match(/https:\/\/accounts\.google\.com\/[^\s]+/)?.[0];
+    if (!url) return;
+    session.url = url;
+    session.promptSent = true;
+    await notify(`Open this Google link:
+${url}
+
+Return the code with /login_code <code>.`);
+    return;
+  }
   if (session.provider === "claudecode") {
     const url = extractClaudeLoginUrl(session.output);
     const waitingForCode = session.output.includes("Paste code here if prompted");
@@ -129,7 +142,7 @@ async function handleExit(code: number | null, signal: NodeJS.Signals | null): P
   } else if (signal === "SIGINT" || signal === "SIGTERM") {
     await notify(`${providerName} login cancelled.`);
   } else {
-    const fallback = tail || `${providerName} login failed.`;
+    const fallback = session.provider === "antigravity" ? "Restart with /login antigravity." : tail || `${providerName} login failed.`;
     await notify(`${providerName} login failed.\n\n${fallback}`);
   }
 
@@ -138,9 +151,14 @@ async function handleExit(code: number | null, signal: NodeJS.Signals | null): P
 
 function attachStream(session: ActiveLoginSession, stream: NodeJS.ReadableStream): void {
   stream.on("data", (chunk: Buffer | string) => {
-    const cleaned = cleanTerminalOutput(String(chunk));
-    if (!cleaned) return;
-    session.output = cleanTerminalOutput(`${session.output}\n${cleaned}`);
+    if (session.provider === "antigravity") {
+      // The non-TTY OAuth URL may span multiple pipe chunks.
+      session.output += String(chunk);
+    } else {
+      const cleaned = cleanTerminalOutput(String(chunk));
+      if (!cleaned) return;
+      session.output = cleanTerminalOutput(`${session.output}\n${cleaned}`);
+    }
     flushPromptIfReady(session).catch((error) => {
       logger.error("Failed to send login prompt", { error: errorMessage(error) });
     });
@@ -163,6 +181,7 @@ export async function startLoginSession(providerArg?: string): Promise<string> {
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
+      ...(provider === "antigravity" ? { SSH_TTY: "remote" } : {}),
       COLUMNS: "240",
       LINES: "60",
       TERM: process.env["TERM"] ?? "xterm-256color",

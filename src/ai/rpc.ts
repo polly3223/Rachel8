@@ -16,7 +16,7 @@ export class RpcClient {
     {
       resolve: (v: unknown) => void;
       reject: (e: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      timer?: ReturnType<typeof setTimeout>;
     }
   >();
   readonly closed: Promise<never>;
@@ -29,6 +29,7 @@ export class RpcClient {
   constructor(
     readonly send: (packet: Packet) => void,
     readonly stop: () => void = () => {},
+    readonly name = "Codex",
   ) {
     this.closed = new Promise((_, reject) => {
       this.fail = reject;
@@ -56,13 +57,13 @@ export class RpcClient {
     }
   }
   async call<T>(method: string, params: unknown, timeout = 90_000): Promise<T> {
-    if (this.dead) throw new Error("Codex connection closed");
+    if (this.dead) throw new Error(`${this.name} connection closed`);
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = timeout > 0 ? setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Codex ${method} timed out`));
-      }, timeout);
+        reject(new Error(`${this.name} ${method} timed out`));
+      }, timeout) : undefined;
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
       try {
         this.send({ id, method, params });
@@ -73,7 +74,7 @@ export class RpcClient {
       }
     });
   }
-  close(error = new Error("Codex connection closed")): void {
+  close(error = new Error(`${this.name} connection closed`)): void {
     if (this.dead) return;
     this.dead = true;
     for (const p of this.pending.values()) {
@@ -86,14 +87,15 @@ export class RpcClient {
   }
 }
 
-export async function connectCodex(cli: string, signal?: AbortSignal): Promise<RpcClient> {
+export function connectStdio(name: string, command: string, args: string[], signal?: AbortSignal): RpcClient {
   signal?.throwIfAborted();
-  const child = spawn(process.execPath, [cli, "app-server", "--listen", "stdio://"], {
+  const child = spawn(command, args, {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const client = new RpcClient(
-    (packet) => child.stdin.write(JSON.stringify(packet) + "\n"),
+    (packet) => child.stdin.write(JSON.stringify(name === "Codex" ? packet : { jsonrpc: "2.0", ...packet }) + "\n"),
     () => child.kill("SIGTERM"),
+    name,
   );
   const abort = () => client.close(new DOMException("Stopped", "AbortError"));
   signal?.addEventListener("abort", abort, { once: true });
@@ -111,22 +113,28 @@ export async function connectCodex(cli: string, signal?: AbortSignal): Promise<R
       try {
         packet = JSON.parse(line) as Packet;
       } catch {
-        client.close(new Error("Invalid Codex protocol message"));
+        client.close(new Error(`Invalid ${name} protocol message`));
         return;
       }
       try {
         client.accept(packet);
       } catch (error) {
-        client.close(new Error("Codex message handler failed", { cause: error }));
+        client.close(new Error(`${name} message handler failed`, { cause: error }));
         return;
       }
     }
   });
+  child.stdin.on("error", (error) => client.close(error));
   child.once("error", (error) => client.close(error));
   child.once("exit", (code) => {
     signal?.removeEventListener("abort", abort);
-    client.close(new Error(`Codex exited (${code})`));
+    client.close(new Error(`${name} exited (${code})`));
   });
+  return client;
+}
+
+export async function connectCodex(cli: string, signal?: AbortSignal): Promise<RpcClient> {
+  const client = connectStdio("Codex", process.execPath, [cli, "app-server", "--listen", "stdio://"], signal);
   try {
     await client.call("initialize", {
       clientInfo: { name: "rachel8", version: "1.0.0" },

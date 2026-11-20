@@ -1,12 +1,12 @@
 # Rachel
 
-Personal AI assistant on Telegram, powered by Claude Code or Codex. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
+Personal AI assistant on Telegram, powered by Codex, Claude Code or Antigravity. Runs 24/7 on your server — builds landing pages, tracks leads, manages contacts, creates documents, schedules tasks, does research, and more. All from a simple Telegram message.
 
-Rachel supports both the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) and the [bundled Codex stdio app-server](https://developers.openai.com/codex/app-server/). Choose the provider with `AI_PROVIDER=claudecode` or `AI_PROVIDER=codex` in `.env`. The default is `codex`.
+Choose the provider with `AI_PROVIDER` in `.env`. The default is `codex`.
 
-You need exactly one provider CLI installed on the server:
-- `claudecode` needs Claude Code installed and logged in
-- `codex` needs Codex installed and logged in
+- `codex` uses the bundled Codex stdio app-server.
+- `claudecode` uses the Claude Agent SDK with a signed-in Claude Code installation.
+- `antigravity` uses a signed-in Google Antigravity CLI (`agy`) over ACP with Gemini 4 Neon XHigh.
 
 ## What can she do?
 
@@ -61,6 +61,8 @@ gh auth login
 ### 4. Install one provider CLI
 
 Pick one.
+
+For `AI_PROVIDER=antigravity`, install the [Google Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli). The adapter was tested with CLI 1.5.13 on Linux.
 
 For `AI_PROVIDER=claudecode`:
 
@@ -124,6 +126,8 @@ bun x codex login
 codex login status
 ```
 
+For Antigravity, run `agy acp --login` or use Telegram’s `/login antigravity`. Check that `agy models` includes `gemini-4-neon-xhigh`.
+
 Rachel expects the selected CLI to already be logged in on the server. There are no provider-specific auth settings in `.env`.
 
 ### 7. Run the setup wizard
@@ -135,7 +139,7 @@ bun run setup
 The wizard will ask for:
 - **Telegram bot token** — create one via [@BotFather](https://t.me/BotFather) (`/newbot`)
 - **Your Telegram user ID** — send `/start` to [@userinfobot](https://t.me/userinfobot)
-- **AI provider** — `claudecode` or `codex`
+- **AI provider** — `codex`, `claudecode` or `antigravity`
 - **Shared folder path** — where Rachel stores memory, files, and data
 - **systemd service** — optionally installs Rachel as a background service
 
@@ -214,9 +218,15 @@ Managed workers preserve their brief, parent work ID, session, checkpoints, mess
 
 The Codex adapter uses the documented stdio protocol, pinned to the bundled CLI version. It preserves existing thread IDs and login. Typed Rachel tools are registered on newly created threads; older threads retain the CLI equivalents until refreshed. Read-only connector discovery is available through `/capabilities`.
 
+### Trying Antigravity
+
+Set `AI_PROVIDER=antigravity` in the service environment and restart Rachel between jobs. To switch back, restore the previous provider and restart. Each provider resumes its own conversation IDs. Memory, work records and schedules are shared. Save any context needed from the current chat before switching. The first Antigravity turn sends the same Rachel instructions and selected memory to Google.
+
+The adapter explicitly selects Neon XHigh on new **and** resumed sessions. The supported `/effort` levels are low, medium, high and xhigh, saved separately from Codex. Text and images, tool activity, permission questions via `/answer`, cancellation and the four Rachel tools run through ACP. Follow-up messages arriving during a turn queue for the next turn. Codex plugins and their credentials remain provider-specific. Review any schedules that need those plugins before a trial.
+
 ## How it works
 
-Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses Claude Agent SDK or the bundled Codex stdio app-server with full tool access:
+Rachel runs behind a provider adapter. Depending on `AI_PROVIDER`, it uses the Claude Agent SDK, the bundled Codex app-server or the Antigravity ACP server. Available tools depend on that provider and its permissions:
 
 - **Bash** — run any command on the server
 - **File system** — read, write, edit any file
