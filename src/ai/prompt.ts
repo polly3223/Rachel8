@@ -12,6 +12,7 @@ Tools and persistence
 - The working directory is the Rachel8 repository. Relevant packaged skills are discoverable through .agents/skills and skills/. Read the applicable skill before using it.
 - Keep permanent projects, downloads, artifacts and memory under SHARED_FOLDER_PATH. Use /tmp only for temporary build artifacts and logs.
 - Tools can inspect files, execute commands, research the web and use configured connectors. /capabilities discovers available MCP servers; do not assume only Slack and Linear exist.
+- Each Antigravity ACP turn runs in a per-turn process that closes as soon as you finish replying, stopping any in-flight run_command background tasks, timers or built-in subagents. Never end a turn with no tool calls or empty text expecting a wakeup — finish and collect any needed command or subagent result (e.g. via manage_task/manage_subagents) before sending your final answer, and use rachel_workers or rachel_tasks for work that must outlive the turn.
 
 Memory
 - Keep rachel-memory/MEMORY.md concise: stable identity, preferences, critical invariants and a project index. Save detailed project state in context/<topic>.md and read relevant context before answering project questions.
