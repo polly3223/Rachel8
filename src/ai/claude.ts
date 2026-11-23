@@ -7,6 +7,18 @@ export const runClaude: RunTurn = async (options) => {
   options.signal.throwIfAborted();
   options.signal.addEventListener("abort", abort, { once: true });
   try {
+    const mcpServers = options.mcpServers?.length
+      ? Object.fromEntries(
+          options.mcpServers.map((s) => [
+            s.name,
+            {
+              command: s.command,
+              args: s.args,
+              ...(Object.keys(s.env).length ? { env: s.env } : {}),
+            },
+          ]),
+        )
+      : undefined;
     for await (const message of query({
       prompt: options.input.text,
       options: {
@@ -15,6 +27,7 @@ export const runClaude: RunTurn = async (options) => {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         abortController,
+        ...(mcpServers ? { mcpServers } : {}),
         ...(options.sessionId ? { resume: options.sessionId } : {}),
       },
     })) {

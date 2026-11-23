@@ -279,3 +279,42 @@ test("an older ACP server cannot silently discard Rachel's system instructions",
   ).rejects.toThrow("cannot apply");
   expect(methods).toEqual(["initialize"]);
 });
+
+test("external provider-agnostic MCP servers are mounted alongside rachel without making them eager", async () => {
+  let newParams: unknown;
+  const client = new RpcClient((packet) => {
+    if (packet.method === "session/new") newParams = packet.params;
+    if (packet.method === "session/prompt") {
+      client.accept({
+        method: "session/update",
+        params: {
+          sessionId: "mcp-sess",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "OK" } },
+        },
+      });
+    }
+    client.accept({
+      id: packet.id,
+      result:
+        packet.method === "initialize"
+          ? initialized
+          : packet.method === "session/new"
+            ? { sessionId: "mcp-sess" }
+            : { stopReason: "end_turn" },
+    });
+  });
+  await runAntigravity(
+    {
+      input: { text: "check" },
+      instructions: "static",
+      signal: new AbortController().signal,
+      onSession: () => {},
+      mcpServers: [{ name: "linear", command: "bun", args: ["bridge.ts", "linear"], env: { FOO: "bar" } }],
+    },
+    client,
+  );
+  expect(newParams).toMatchObject({
+    mcpServers: [{ name: "linear", command: "bun", args: ["bridge.ts", "linear"], env: [{ name: "FOO", value: "bar" }] }],
+    _meta: { antigravity: { eagerMcpServers: ["rachel"] } },
+  });
+});

@@ -5,6 +5,7 @@ import { initializeMemorySystem } from "./lib/memory.ts";
 import { logger } from "./lib/logger.ts";
 import { setLoginNotifier, shutdownLoginSession } from "./lib/login-session.ts";
 import { cancelConnectorSession, setConnectorNotifier } from "./lib/connector-session.ts";
+import { shutdownMcpHub } from "./lib/mcp-hub.ts";
 import { botCommandsForProvider } from "./telegram/commands.ts";
 import { startRuntime, shutdownRuntime } from "./lib/runtime.ts";
 import { sendChunks } from "./telegram/delivery.ts";
@@ -27,6 +28,7 @@ async function shutdown(): Promise<void> {
   shutdownLoginSession();
   await Promise.allSettled([
     shutdownRuntime(),
+    shutdownMcpHub(),
     cancelConnectorSession({ notify: false }),
     bot.stop(),
   ]);

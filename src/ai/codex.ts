@@ -167,13 +167,29 @@ export async function runCodex(options: TurnOptions, connection?: RpcClient): Pr
     throw new Error(`Unsupported interactive request: ${method}`);
   };
   try {
+    const externalMcp = options.mcpServers?.length
+      ? Object.fromEntries(
+          options.mcpServers.map((s) => [
+            s.name,
+            {
+              command: s.command,
+              args: s.args,
+              ...(Object.keys(s.env).length ? { env: s.env } : {}),
+            },
+          ]),
+        )
+      : undefined;
     const common = {
       cwd: process.cwd(),
       model: env.CODEX_MODEL ?? "gpt-6.2-astra",
       sandbox: "danger-full-access",
       approvalPolicy: "never",
       developerInstructions: options.instructions,
-      config: { apps: { [LINEAR_APP_ID]: { enabled: false } }, web_search: "live" },
+      config: {
+        apps: { [LINEAR_APP_ID]: { enabled: false } },
+        web_search: "live",
+        ...(externalMcp ? { mcp_servers: externalMcp } : {}),
+      },
     };
     const response = await client.call<{ thread: { id: string } }>(
       options.sessionId ? "thread/resume" : "thread/start",

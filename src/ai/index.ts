@@ -26,6 +26,7 @@ import { isContextOverflowError, isCodexThreadUnavailableError } from "./session
 import type { Input } from "./turn.ts";
 import type { Output } from "../lib/work-store.ts";
 import { executeCapability } from "../lib/capabilities.ts";
+import { getMcpHub } from "../lib/mcp-hub.ts";
 
 const queue = new KeyedQueue<string>();
 interface Control {
@@ -94,6 +95,7 @@ async function run(
         }
       : input;
     await assertProviderAuthenticated(env.AI_PROVIDER);
+    const mcpServers = await getMcpHub().getProviderMcpServers();
     const onSession = (id: string) => store.saveSession(provider, key, id);
     const turn = { codex: runCodex, claudecode: runClaude, antigravity: runAntigravity }[env.AI_PROVIDER];
     const turnOptions = {
@@ -110,6 +112,7 @@ async function run(
         control.steer = steer;
       },
       tool: (name: string, args: unknown) => executeCapability(name, args, options.runId),
+      mcpServers,
       ask: async (question: string, choices: string[]) => {
         if (!options.onQuestion)
           throw new Error("No interactive recipient; return the question in your report");

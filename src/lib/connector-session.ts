@@ -1,331 +1,243 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { resolveCliPath } from "../ai/cli-path.ts";
+import { env } from "../config/env.ts";
 import { errorMessage } from "./errors.ts";
-import { logger } from "./logger.ts";
-import { cleanTerminalOutput, outputTail } from "./terminal-output.ts";
-import { LINEAR_MCP_NAME, LINEAR_MCP_URL } from "./connector-config.ts";
+import { getMcpHub, type McpHub } from "./mcp-hub.ts";
+import { beginConnectorOAuth, completeConnectorOAuth, OAUTH_PENDING_TTL_MS } from "./mcp-oauth.ts";
+import {
+  BUILTIN_CONNECTORS,
+  clearPendingOAuth,
+  isAllowedConnectorUrl,
+  isHttpConnectorReady,
+  loadConnectors,
+  loadOAuthState,
+  mcpVaultDir,
+  normalizeConnectorName,
+  upsertConnector,
+  type ConnectorSpec,
+  type HttpConnectorSpec,
+} from "./mcp-store.ts";
 
-const CONNECTOR_TIMEOUT_MS = 20 * 60 * 1000;
-const PLUGINS = {
-  linear: "linear@openai-curated",
-  slack: "slack@openai-curated",
-} as const;
-
-export type Connector = keyof typeof PLUGINS;
-type ConnectorNotifier = (text: string) => Promise<void>;
-
-interface ActiveConnectorSession {
-  connector: Connector;
-  process: ChildProcessWithoutNullStreams;
-  timeout: ReturnType<typeof setTimeout>;
-  output: string;
-  authorizationUrl?: string;
-  expectedCallback?: string;
-  promptSent: boolean;
-  completed: boolean;
-}
+export type ConnectorNotifier = (text: string) => Promise<void>;
 
 let notifier: ConnectorNotifier | null = null;
-let activeSession: ActiveConnectorSession | null = null;
-
-export function normalizeConnector(value?: string): Connector | null {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === "linear" || normalized === "slack" ? normalized : null;
-}
-
 export function setConnectorNotifier(send: ConnectorNotifier): void {
   notifier = send;
 }
-
-async function notify(text: string): Promise<void> {
-  if (!notifier) {
-    logger.warn("Connector notifier not configured");
-    return;
-  }
-  await notifier(text);
+export async function notifyConnector(text: string): Promise<void> {
+  if (notifier) await notifier(text);
 }
 
-async function runCommand(
-  command: string[],
-  timeoutMs = 60_000,
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(command, {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const timer = setTimeout(() => proc.kill("SIGTERM"), timeoutMs);
+export function normalizeConnector(value?: string): string | null {
+  return normalizeConnectorName(value);
+}
+
+function parseConnectArgs(raw?: string): { name: string; url?: string } | null {
+  const parts = (raw ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0 || parts.length > 2) return null;
+  const name = normalizeConnectorName(parts[0]);
+  if (!name) return null;
+  if (parts[1] && !isAllowedConnectorUrl(parts[1])) {
+    throw new Error("Connector URL must start with https:// (or http://localhost / 127.0.0.1).");
+  }
+  return { name, url: parts[1] };
+}
+
+function slackSetupHint(sharedDir: string): string {
+  return [
+    `Slack's official MCP (https://mcp.slack.com/mcp) requires a Slack App client ID/secret (it does not support dynamic registration).`,
+    `Add a "slack" entry with oauth.clientId, oauth.clientSecret and oauth.redirectUri (e.g. http://localhost:3118/callback) to ${mcpVaultDir(sharedDir)}/connectors.json, then run /connector_connect slack.`,
+  ].join("\n\n");
+}
+
+function gmailSetupHint(sharedDir: string): string {
+  return [
+    `Gmail is not a dynamic-registration MCP. Configure one of these in ${mcpVaultDir(sharedDir)}/connectors.json:`,
+    `1) Local stdio (recommended): { "type": "stdio", "command": "gws", "args": ["mcp", "-s", "gmail,drive,calendar"] }`,
+    `2) Remote Google MCP: { "type": "http", "url": "https://gmailmcp.googleapis.com/mcp/v1", "oauth": { "clientId": "...", "clientSecret": "...", "authorizationEndpoint": "https://accounts.google.com/o/oauth2/v2/auth", "tokenEndpoint": "https://oauth2.googleapis.com/token", "scope": "https://www.googleapis.com/auth/gmail.readonly", "extraAuthParams": { "access_type": "offline", "prompt": "consent" } } }`,
+  ].join("\n\n");
+}
+
+async function resolveOrRegisterSpec(
+  sharedDir: string,
+  name: string,
+  explicitUrl?: string,
+): Promise<ConnectorSpec> {
+  const configured = await loadConnectors(sharedDir);
+  const existing = configured[name];
+  if (explicitUrl) {
+    const next: HttpConnectorSpec =
+      existing?.type === "http"
+        ? { ...existing, url: explicitUrl, enabled: true }
+        : { type: "http", url: explicitUrl, enabled: true };
+    return upsertConnector(sharedDir, name, next);
+  }
+  if (existing) return existing;
+  const preset = BUILTIN_CONNECTORS[name];
+  if (preset) return upsertConnector(sharedDir, name, preset);
+  if (name === "gmail") throw new Error(gmailSetupHint(sharedDir));
+  const presetNames = Object.keys(BUILTIN_CONNECTORS).join(", ");
+  throw new Error(
+    `Unknown connector "${name}". Built-in presets: ${presetNames}. Or register a custom Streamable HTTP MCP with:\n/connector_connect ${name} https://...`,
+  );
+}
+
+export async function startConnectorSession(
+  raw?: string,
+  sharedDir = env.SHARED_FOLDER_PATH,
+  hub: McpHub = getMcpHub(),
+): Promise<string> {
+  const parsed = parseConnectArgs(raw);
+  if (!parsed) {
+    return `Usage: /connector_connect <name> [https://mcp-url]\nBuilt-in presets: ${Object.keys(BUILTIN_CONNECTORS).join(", ")}`;
+  }
+  const spec = await resolveOrRegisterSpec(sharedDir, parsed.name, parsed.url);
+  if (spec.type === "stdio") {
+    const { tools } = await hub.probeConnector(parsed.name);
+    return `${parsed.name} (stdio) is ready (${tools} tools) across all AI providers.`;
+  }
+  if (spec.noAuth || (spec.headers && Object.keys(spec.headers).length > 0)) {
+    await hub.invalidate(parsed.name);
+    const { tools } = await hub.probeConnector(parsed.name);
+    return `${parsed.name} is connected (${tools} tools) across all AI providers.`;
+  }
+  if (parsed.name === "slack" && !spec.oauth?.clientId) {
+    return slackSetupHint(sharedDir);
+  }
+  await hub.invalidate(parsed.name);
+  const flow = await beginConnectorOAuth(sharedDir, parsed.name, spec);
+  if (flow.status === "authorized") {
+    const { tools } = await hub.probeConnector(parsed.name);
+    return `${parsed.name} is already authorized and connected (${tools} tools) across all AI providers.`;
+  }
+  return [
+    `${parsed.name} authorization is ready (provider-agnostic; works on Antigravity, Codex and Claude Code).`,
+    flow.authorizationUrl,
+    `After approving, your browser will redirect to ${flow.redirectUri} (which may fail to load — that is expected). Copy the complete URL from the address bar and send:`,
+    `/connector_callback <complete URL>`,
+    `Use /connector_cancel ${parsed.name} to abort.`,
+  ].join("\n\n");
+}
+
+async function findMatchingPending(
+  sharedDir: string,
+  callbackUrl: string,
+): Promise<{ name: string; spec: HttpConnectorSpec } | null> {
+  let parsed: URL;
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return { stdout: cleanTerminalOutput(stdout), stderr: cleanTerminalOutput(stderr), exitCode };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function ensurePlugin(codex: string, connector: Connector): Promise<void> {
-  const list = await runCommand([codex, "plugin", "list"]);
-  const plugin = PLUGINS[connector];
-  const installed = list.exitCode === 0 && new RegExp(`^${plugin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+installed`, "m").test(list.stdout);
-  if (installed) return;
-
-  const install = await runCommand([codex, "plugin", "add", plugin, "--json"], 120_000);
-  if (install.exitCode !== 0) {
-    throw new Error(outputTail(`${install.stdout}\n${install.stderr}`) || `Could not install ${plugin}`);
-  }
-}
-
-async function isLinearMcpConfigured(codex: string): Promise<boolean> {
-  const result = await runCommand([codex, "mcp", "get", LINEAR_MCP_NAME, "--json"]);
-  return result.exitCode === 0;
-}
-
-export function extractLinearOAuthDetails(output: string): {
-  authorizationUrl?: string;
-  expectedCallback?: string;
-} {
-  const authorizationUrl = output.match(/https:\/\/mcp\.linear\.app\/authorize\?[^\s]+/)?.[0];
-  if (!authorizationUrl) return {};
-
-  try {
-    const redirect = new URL(authorizationUrl).searchParams.get("redirect_uri");
-    if (!redirect) return { authorizationUrl };
-    const callback = new URL(redirect);
-    return {
-      authorizationUrl,
-      expectedCallback: `${callback.origin}${callback.pathname}`,
-    };
+    parsed = new URL(callbackUrl.trim());
   } catch {
-    return { authorizationUrl };
+    throw new Error("That is not a valid OAuth callback URL.");
   }
-}
-
-export function validateLinearCallback(value: string, expectedCallback?: string): URL {
-  const callback = new URL(value.trim());
-  const localHost = callback.hostname === "127.0.0.1" || callback.hostname === "localhost";
-  const hasResult = callback.searchParams.has("code") || callback.searchParams.has("error");
-  if (callback.protocol !== "http:" || !localHost || !callback.port || !/^\/callback(?:\/|$)/.test(callback.pathname) || !hasResult) {
-    throw new Error("That is not a valid Linear OAuth callback URL.");
-  }
-  if (expectedCallback && `${callback.origin}${callback.pathname}` !== expectedCallback) {
-    throw new Error("That callback URL does not belong to the active Linear login.");
-  }
-  return callback;
-}
-
-export function slackProbeSucceeded(output: string): boolean {
-  return output.split("\n").some((line) => {
-    try {
-      const event = JSON.parse(line) as {
-        type?: string;
-        item?: { type?: string; server?: string; tool?: string; status?: string; error?: unknown };
-      };
-      return event.type === "item.completed"
-        && event.item?.type === "mcp_tool_call"
-        && event.item.server === "codex_apps"
-        && event.item.tool?.startsWith("slack.") === true
-        && event.item.status === "completed"
-        && event.item.error == null;
-    } catch {
-      return false;
+  const stateParam = parsed.searchParams.get("state");
+  const connectors = await loadConnectors(sharedDir);
+  const candidates: Array<{ name: string; spec: HttpConnectorSpec; stateMatch: boolean }> = [];
+  for (const [name, spec] of Object.entries(connectors)) {
+    if (spec.type !== "http") continue;
+    const oauth = await loadOAuthState(sharedDir, name);
+    if (!oauth.pending) continue;
+    const expected = new URL(oauth.pending.redirectUri);
+    if (expected.origin === parsed.origin && expected.pathname === parsed.pathname) {
+      candidates.push({
+        name,
+        spec,
+        stateMatch: Boolean(stateParam && stateParam === oauth.pending.state),
+      });
     }
-  });
-}
-
-function connectorEnvironment(): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    COLUMNS: "240",
-    LINES: "60",
-    TERM: process.env["TERM"] ?? "xterm-256color",
-  };
-}
-
-async function flushPromptIfReady(session: ActiveConnectorSession): Promise<void> {
-  if (session.promptSent) return;
-
-  if (session.connector === "linear") {
-    const details = extractLinearOAuthDetails(session.output);
-    if (!details.authorizationUrl) return;
-    session.authorizationUrl = details.authorizationUrl;
-    session.expectedCallback = details.expectedCallback;
-    session.promptSent = true;
-    await notify([
-      "Linear authorization is ready.",
-      details.authorizationUrl,
-      "After approving, your browser may fail to open the localhost callback. Copy the complete URL from its address bar and send:",
-      "/connector_callback <complete URL>",
-      "Use /connector_cancel to abort.",
-    ].join("\n\n"));
-    return;
   }
-
-  const oauthUrl = session.output.match(/https:\/\/(?:chatgpt\.com|auth\.openai\.com)\/[^\s"\\]+/)?.[0];
-  if (!oauthUrl) return;
-  session.authorizationUrl = oauthUrl;
-  session.promptSent = true;
-  await notify([
-    "Slack authorization is ready.",
-    oauthUrl,
-    "Complete the browser flow, then wait here for confirmation. Use /connector_cancel to abort.",
-  ].join("\n\n"));
-}
-
-function finishSession(session: ActiveConnectorSession): void {
-  clearTimeout(session.timeout);
-  if (activeSession === session) activeSession = null;
-}
-
-async function handleExit(
-  session: ActiveConnectorSession,
-  code: number | null,
-  signal: NodeJS.Signals | null,
-): Promise<void> {
-  if (session.completed) return;
-  session.completed = true;
-
-  const succeeded = session.connector === "linear" || slackProbeSucceeded(session.output);
-  if (code === 0 && succeeded) {
-    await notify(`${session.connector === "linear" ? "Linear" : "Slack"} is connected and available to Rachel.`);
-  } else if (code === 0 && session.authorizationUrl) {
-    await notify("Slack authorization was opened. Run /connector_connect slack again after completing it to verify access.");
-  } else if (signal === "SIGINT" || signal === "SIGTERM") {
-    await notify(`${session.connector === "linear" ? "Linear" : "Slack"} connection cancelled.`);
-  } else {
-    const detail = outputTail(session.output, 12);
-    await notify(`${session.connector === "linear" ? "Linear" : "Slack"} connection failed.${detail ? `\n\n${detail}` : ""}`);
-  }
-  finishSession(session);
-}
-
-function attachStream(session: ActiveConnectorSession, stream: NodeJS.ReadableStream): void {
-  stream.on("data", (chunk: Buffer | string) => {
-    session.output = cleanTerminalOutput(`${session.output}\n${String(chunk)}`);
-    flushPromptIfReady(session).catch((error) => {
-      logger.error("Failed to send connector OAuth prompt", { error: errorMessage(error) });
-    });
-  });
-}
-
-function spawnSession(connector: Connector, cmd: string, args: string[]): void {
-  const child = spawn(cmd, args, {
-    stdio: ["pipe", "pipe", "pipe"],
-    env: connectorEnvironment(),
-  });
-  const session: ActiveConnectorSession = {
-    connector,
-    process: child,
-    timeout: setTimeout(() => child.kill("SIGTERM"), CONNECTOR_TIMEOUT_MS),
-    output: "",
-    promptSent: false,
-    completed: false,
-  };
-  activeSession = session;
-  child.stdin.end();
-  attachStream(session, child.stdout);
-  attachStream(session, child.stderr);
-  child.on("error", (error) => {
-    logger.error("Connector process failed to start", { connector, error: errorMessage(error) });
-    if (!session.completed) {
-      session.completed = true;
-      notify(`${connector === "linear" ? "Linear" : "Slack"} connection failed to start.\n\n${errorMessage(error)}`)
-        .finally(() => finishSession(session));
+  const exact = candidates.find((c) => c.stateMatch);
+  if (exact) return { name: exact.name, spec: exact.spec };
+  if (candidates.length === 1) return { name: candidates[0]!.name, spec: candidates[0]!.spec };
+  // If no origin/path match, check whether exactly one non-expired pending flow exists so validateOAuthCallback can return its specific mismatch error.
+  const allPending: Array<{ name: string; spec: HttpConnectorSpec }> = [];
+  for (const [name, spec] of Object.entries(connectors)) {
+    if (spec.type !== "http") continue;
+    const oauth = await loadOAuthState(sharedDir, name);
+    if (oauth.pending && Date.now() - oauth.pending.createdAt <= OAUTH_PENDING_TTL_MS) {
+      allPending.push({ name, spec });
     }
-  });
-  child.on("exit", (code, signal) => {
-    handleExit(session, code, signal).catch((error) => {
-      logger.error("Failed to handle connector process exit", { error: errorMessage(error) });
-      finishSession(session);
-    });
-  });
+  }
+  return allPending.length === 1 ? allPending[0]! : null;
 }
 
-export async function startConnectorSession(value?: string): Promise<string> {
-  const connector = normalizeConnector(value);
-  if (!connector) return "Usage: /connector_connect <linear|slack>";
-  if (activeSession) {
-    return `${activeSession.connector === "linear" ? "Linear" : "Slack"} connection is already in progress. Use /connector_status or /connector_cancel.`;
+export async function submitConnectorCallback(
+  value?: string,
+  sharedDir = env.SHARED_FOLDER_PATH,
+  hub: McpHub = getMcpHub(),
+): Promise<string> {
+  if (!value?.trim()) return "Usage: /connector_callback <complete callback URL>";
+  const match = await findMatchingPending(sharedDir, value);
+  if (!match) return "No pending connector authorization matches that callback URL.";
+  await completeConnectorOAuth(sharedDir, match.name, match.spec, value);
+  await hub.invalidate(match.name);
+  try {
+    const { tools } = await hub.probeConnector(match.name);
+    return `${match.name} is connected (${tools} tools) and available across Antigravity, Codex and Claude Code.`;
+  } catch (error) {
+    return `${match.name} OAuth tokens saved, but live tool check failed: ${errorMessage(error)}`;
   }
+}
 
-  const codex = await resolveCliPath("codex");
-  await ensurePlugin(codex, connector);
-  if (connector === "linear") {
-    if (await isLinearMcpConfigured(codex)) {
-      spawnSession(connector, codex, ["mcp", "login", LINEAR_MCP_NAME]);
+export async function cancelConnectorSession(
+  options: { name?: string; notify?: boolean } = {},
+  sharedDir = env.SHARED_FOLDER_PATH,
+): Promise<string> {
+  const connectors = await loadConnectors(sharedDir);
+  const target = options.name ? normalizeConnectorName(options.name) : null;
+  if (options.name && !target) return `Invalid connector name: ${options.name}`;
+  const names = target ? [target] : Object.keys(connectors);
+  const cancelled: string[] = [];
+  for (const name of names) {
+    const state = await loadOAuthState(sharedDir, name);
+    if (state.pending) {
+      await clearPendingOAuth(sharedDir, name);
+      cancelled.push(name);
+    }
+  }
+  if (!cancelled.length) return "No connector authorization is pending.";
+  return `Cancelled pending authorization for: ${cancelled.join(", ")}.`;
+}
+
+export async function getConnectorStatusMessage(
+  value?: string,
+  sharedDir = env.SHARED_FOLDER_PATH,
+): Promise<string> {
+  const requested = value?.trim() ? normalizeConnectorName(value) : null;
+  if (value?.trim() && !requested) {
+    return "Usage: /connector_status [connector-name]";
+  }
+  const connectors = await loadConnectors(sharedDir);
+  const names = requested
+    ? [requested]
+    : [...new Set([...Object.keys(connectors), ...Object.keys(BUILTIN_CONNECTORS)])].sort();
+  const lines: string[] = [];
+  for (const name of names) {
+    const spec = connectors[name];
+    if (!spec) {
+      lines.push(`${name}: preset available (run /connector_connect ${name})`);
+      continue;
+    }
+    if (!spec.enabled) {
+      lines.push(`${name} (${spec.type}): disabled`);
+      continue;
+    }
+    if (spec.type === "stdio") {
+      lines.push(`${name} (stdio): configured (${spec.command})`);
+      continue;
+    }
+    const state = await loadOAuthState(sharedDir, name);
+    if (isHttpConnectorReady(spec, state)) {
+      const authKind = spec.noAuth
+        ? "no auth"
+        : spec.headers && Object.keys(spec.headers).length > 0
+          ? "static headers"
+          : state.tokens?.refresh_token
+            ? "OAuth connected (refresh token saved)"
+            : "OAuth connected";
+      lines.push(`${name} (http): ${authKind}`);
+    } else if (state.pending && Date.now() - state.pending.createdAt <= OAUTH_PENDING_TTL_MS) {
+      lines.push(`${name} (http): authorization pending (send /connector_callback <URL>)`);
     } else {
-      // `mcp add` starts OAuth immediately when the server advertises it, so
-      // keep it inside the managed session instead of waiting synchronously.
-      spawnSession(connector, codex, [
-        "mcp",
-        "add",
-        LINEAR_MCP_NAME,
-        "--url",
-        LINEAR_MCP_URL,
-        "--oauth-resource",
-        LINEAR_MCP_URL,
-      ]);
+      lines.push(`${name} (http): authorization required (run /connector_connect ${name})`);
     }
-  } else {
-    const nonce = `rachel-connector-probe-${Date.now()}`;
-    spawnSession(connector, codex, [
-      "exec",
-      "--experimental-json",
-      "--skip-git-repo-check",
-      "--sandbox",
-      "read-only",
-      `Use the installed Slack plugin to search Slack read-only for the exact impossible phrase \"${nonce}\". Do not write anything. If authentication is required, initiate its authorization flow.`,
-    ]);
   }
-  return `Starting ${connector === "linear" ? "Linear" : "Slack"} connection...`;
-}
-
-export async function submitConnectorCallback(value?: string): Promise<string> {
-  const session = activeSession;
-  if (!session || session.connector !== "linear") return "No Linear connection is waiting for a callback.";
-  if (!value) return "Usage: /connector_callback <complete callback URL>";
-
-  const callback = validateLinearCallback(value, session.expectedCallback);
-  const response = await fetch(callback, { redirect: "manual" });
-  if (!response.ok) throw new Error(`Linear callback relay failed with HTTP ${response.status}.`);
-  return "Linear callback relayed. Waiting for Codex to confirm the connection...";
-}
-
-export async function cancelConnectorSession(options: { notify?: boolean } = {}): Promise<string> {
-  const session = activeSession;
-  if (!session) return "No connector connection is in progress.";
-  if (options.notify === false) session.completed = true;
-  session.process.kill("SIGINT");
-  if (options.notify === false) finishSession(session);
-  return `Cancelling ${session.connector === "linear" ? "Linear" : "Slack"} connection...`;
-}
-
-export async function getConnectorStatusMessage(value?: string): Promise<string> {
-  const requested = value ? normalizeConnector(value) : null;
-  if (value && !requested) return "Usage: /connector_status [linear|slack]";
-
-  const codex = await resolveCliPath("codex");
-  const [plugins, mcp] = await Promise.all([
-    runCommand([codex, "plugin", "list"]),
-    runCommand([codex, "mcp", "list"]),
-  ]);
-  const connectors: Connector[] = requested ? [requested] : ["linear", "slack"];
-  const lines = connectors.map((connector) => {
-    const plugin = PLUGINS[connector];
-    const installed = new RegExp(`^${plugin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+installed`, "m").test(plugins.stdout);
-    if (!installed) return `${connector === "linear" ? "Linear" : "Slack"}: not installed`;
-    if (connector === "linear") {
-      const row = mcp.stdout
-        .split("\n")
-        .find((line) => line.startsWith(`${LINEAR_MCP_NAME} `));
-      const connected = row ? !/not logged in/i.test(row) : false;
-      return `Linear: ${connected ? "connected" : "installed, authorization required"}`;
-    }
-    return "Slack: installed; run /connector_connect slack to verify authorization";
-  });
-  if (activeSession) lines.push(`${activeSession.connector === "linear" ? "Linear" : "Slack"} connection is in progress.`);
-  return lines.join("\n");
+  return lines.join("\n") || "No connectors configured.";
 }

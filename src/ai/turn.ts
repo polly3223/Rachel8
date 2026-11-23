@@ -1,3 +1,4 @@
+import type { ExternalMcpServer } from "../lib/mcp-hub.ts";
 import type { Output } from "../lib/work-store.ts";
 
 export interface Input {
@@ -15,5 +16,6 @@ export interface TurnOptions {
   onControl?: (steer: (input: Input) => Promise<void>) => void;
   ask?: (question: string, options: string[]) => Promise<string>;
   tool?: (name: string, args: unknown) => Promise<unknown>;
+  mcpServers?: ExternalMcpServer[];
 }
 export type RunTurn = (options: TurnOptions) => Promise<Output>;

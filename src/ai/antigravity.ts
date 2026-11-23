@@ -189,9 +189,15 @@ export async function runAntigravity(options: TurnOptions, connection?: RpcClien
         "This Antigravity CLI cannot apply Rachel’s instructions. Update agy and try again.",
       );
     if (options.tool) bridge = startToolBridge(options.tool);
+    const externalMcpServers = (options.mcpServers ?? []).map((server) => ({
+      name: server.name,
+      command: server.command,
+      args: server.args,
+      env: Object.entries(server.env).map(([name, value]) => ({ name, value })),
+    }));
     const base = {
       cwd: process.cwd(),
-      mcpServers: bridge ? [bridge.config] : [],
+      mcpServers: [...(bridge ? [bridge.config] : []), ...externalMcpServers],
     };
     if (options.sessionId) {
       // Omit systemPrompt on resume: ACP keeps the session/new append and preserves prompt caching.

@@ -156,3 +156,33 @@ test("interactive answers are associated with their original question IDs", asyn
   expect(response).toEqual({ answers: { color: { answers: ["blue"] } } });
   await task;
 });
+test("provider-agnostic external MCP servers are forwarded to Codex thread config", async () => {
+  let startParams: unknown;
+  const client = fake(
+    (c) => {
+      c.accept({
+        method: "item/completed",
+        params: { threadId: "saved-thread", item: { id: "done", type: "agentMessage", text: "OK" } },
+      });
+      finish(c);
+    },
+    (method, params) => {
+      if (method === "thread/start") startParams = params;
+    },
+  );
+  await runCodex(
+    {
+      input: { text: "test" },
+      instructions: "test",
+      signal: new AbortController().signal,
+      onSession: () => {},
+      mcpServers: [{ name: "linear", command: "bun", args: ["bridge.ts", "linear"], env: { K: "V" } }],
+    },
+    client,
+  );
+  expect(startParams).toMatchObject({
+    config: {
+      mcp_servers: { linear: { command: "bun", args: ["bridge.ts", "linear"], env: { K: "V" } } },
+    },
+  });
+});
