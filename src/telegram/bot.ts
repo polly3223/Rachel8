@@ -21,7 +21,6 @@ import { acceptMessage } from "./handlers/message.ts";
 import { answerConversation } from "../ai/index.ts";
 import { getStore } from "../ai/session-store.ts";
 import { stopWork } from "../lib/runtime.ts";
-import { codexCapabilities } from "../ai/codex.ts";
 import { getMcpHub } from "../lib/mcp-hub.ts";
 import { sendChunks } from "./delivery.ts";
 import { workerBoard } from "../lib/workers.ts";
@@ -108,20 +107,15 @@ bot.command("answer", (ctx) =>
 );
 bot.command("capabilities", (ctx) => {
   // Read-only discovery may wait on remote MCPs; it must not block control intake.
-  void Promise.all([
-    getMcpHub().capabilities(),
-    env.AI_PROVIDER === "codex" ? codexCapabilities().catch(() => null) : Promise.resolve(null),
-  ])
-    .then(([rachelConnectors, legacyCodex]) => {
-      const payload = legacyCodex
-        ? { rachelConnectors, codexConnectors: legacyCodex }
-        : { rachelConnectors };
-      return sendChunks(
+  void getMcpHub()
+    .capabilities()
+    .then((connectors) =>
+      sendChunks(
         ctx.chat.id,
-        `Configured connectors (provider: ${env.AI_PROVIDER}):\n${JSON.stringify(payload, null, 2)}\n\nBuilt-in tools: rachel_memory, rachel_tasks, rachel_workers, rachel_artifact. Local skills: skills/ and .agents/skills/. Controls: /status, /stop, /resume, /answer, /connector_status.`,
+        `Configured connectors (provider: ${env.AI_PROVIDER}):\n${JSON.stringify(connectors, null, 2)}\n\nBuilt-in tools: rachel_memory, rachel_tasks, rachel_workers, rachel_artifact. Local skills: skills/ and .agents/skills/. Controls: /status, /stop, /resume, /answer, /connector_status.`,
         false,
-      );
-    })
+      ),
+    )
     .catch(() =>
       sendChunks(
         ctx.chat.id,

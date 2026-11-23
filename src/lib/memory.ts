@@ -40,7 +40,7 @@ export function formatLocalDate(date: Date): string {
 export function redactSecrets(text: string): string {
   return text
     .replace(
-      /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|\d{8,}:[A-Za-z0-9_-]{35,})\b/g,
+      /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|fluso_[A-Za-z0-9_-]{16,}|\d{8,}:[A-Za-z0-9_-]{35,})\b/g,
       "[credential redacted]",
     )
     .replace(

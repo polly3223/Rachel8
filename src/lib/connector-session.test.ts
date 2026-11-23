@@ -18,16 +18,17 @@ import { McpHub } from "./mcp-hub.ts";
 import {
   beginConnectorOAuth,
   completeConnectorOAuth,
-  createOAuthFetch,
   OAUTH_PENDING_TTL_MS,
   validateOAuthCallback,
 } from "./mcp-oauth.ts";
 import {
   connectorsFilePath,
+  flusoCredentialsPath,
   isAllowedConnectorUrl,
   loadConnectors,
   loadOAuthState,
   oauthStatePath,
+  saveFlusoCredentials,
   saveOAuthState,
   upsertConnector,
 } from "./mcp-store.ts";
@@ -64,8 +65,10 @@ describe("mcp-store validation and vault permissions", () => {
     const dir = makeSharedDir();
     await upsertConnector(dir, "linear", { type: "http", url: "https://mcp.linear.app/mcp", enabled: true });
     await saveOAuthState(dir, "linear", { tokens: { access_token: "tok", token_type: "Bearer" } });
+    await saveFlusoCredentials(dir, { baseUrl: "https://api.fluso.ai/v1", token: "fluso_testtoken12345678" });
     expect(statSync(connectorsFilePath(dir)).mode & 0o777).toBe(0o600);
     expect(statSync(oauthStatePath(dir, "linear")).mode & 0o777).toBe(0o600);
+    expect(statSync(flusoCredentialsPath(dir)).mode & 0o777).toBe(0o600);
     expect((await loadConnectors(dir))["linear"]?.type).toBe("http");
 
     const symPath = oauthStatePath(dir, "attio");
@@ -74,7 +77,7 @@ describe("mcp-store validation and vault permissions", () => {
   });
 });
 
-describe("mcp-oauth callback validation and Slack response normalization", () => {
+describe("mcp-oauth callback validation", () => {
   const pending = {
     state: "expected-state-123",
     redirectUri: "http://127.0.0.1:18472/callback/linear",
@@ -128,33 +131,12 @@ describe("mcp-oauth callback validation and Slack response normalization", () =>
       ),
     ).toThrow("missing an authorization code");
   });
-
-  test("normalizes Slack authed_user and user token_type responses", async () => {
-    const fakeFetch = createOAuthFetch(async () =>
-      new Response(
-        JSON.stringify({
-          ok: true,
-          authed_user: { access_token: "xoxe.xoxp-1", refresh_token: "xoxe-r1", expires_in: 43200 },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    );
-    const res = await fakeFetch("https://slack.com/api/oauth.v2.user.access", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: "grant_type=authorization_code&code=123",
-    });
-    const json = (await res.json()) as Record<string, unknown>;
-    expect(json["access_token"]).toBe("xoxe.xoxp-1");
-    expect(json["refresh_token"]).toBe("xoxe-r1");
-    expect(json["token_type"]).toBe("Bearer");
-  });
 });
 
-describe("end-to-end provider-agnostic OAuth, McpHub, and stdio bridge", () => {
+describe("end-to-end direct DCR OAuth, Fluso connector, McpHub, and stdio bridge", () => {
   test("completes DCR OAuth, persists tokens, and proxies tools through mcp-bridge.ts", async () => {
     const dir = makeSharedDir();
-    let expectedToken = "tok-initial";
+    const expectedToken = "tok-initial";
     const mockServer = Bun.serve({
       port: 0,
       async fetch(req) {
@@ -233,33 +215,21 @@ describe("end-to-end provider-agnostic OAuth, McpHub, and stdio bridge", () => {
       const spec = { type: "http" as const, url: mcpUrl, enabled: true };
       await upsertConnector(dir, "demo", spec);
 
-      // 1. Start OAuth via Telegram command flow
       const startMsg = await startConnectorSession(`demo ${mcpUrl}`, dir, hub);
       expect(startMsg).toContain(`${mockServer.url.origin}/authorize?`);
       expect(startMsg).toContain("/connector_callback");
+      expect(await getConnectorStatusMessage("demo", dir)).toContain("authorization pending");
 
-      const statusPending = await getConnectorStatusMessage("demo", dir);
-      expect(statusPending).toContain("authorization pending");
-
-      // 2. Complete OAuth with the exact pending state
       const stateBefore = await loadOAuthState(dir, "demo");
-      expect(stateBefore.pending?.state).toBeTruthy();
       const callbackUrl = `${stateBefore.pending!.redirectUri}?code=test-code-42&state=${encodeURIComponent(stateBefore.pending!.state)}`;
-      const doneMsg = await submitConnectorCallback(callbackUrl, dir, hub);
-      expect(doneMsg).toContain("demo is connected (1 tools)");
-
-      // 3. Status and capabilities report connected
+      expect(await submitConnectorCallback(callbackUrl, dir, hub)).toContain("demo is connected (1 tools)");
       expect(await getConnectorStatusMessage("demo", dir)).toContain("OAuth connected");
-      const caps = await hub.capabilities();
-      expect(caps).toEqual([
+      expect(await hub.capabilities()).toEqual([
         expect.objectContaining({ name: "demo", type: "http", status: "connected", tools: 1 }),
       ]);
 
-      // 4. Mount via provider-agnostic stdio bridge and call the remote tool end-to-end
       const mounted = await hub.getProviderMcpServers();
       expect(mounted).toHaveLength(1);
-      expect(mounted[0]!.name).toBe("demo");
-
       const client = new Client({ name: "test-provider", version: "1" }, { capabilities: {} });
       const stdio = new StdioClientTransport({
         command: mounted[0]!.command,
@@ -276,23 +246,181 @@ describe("end-to-end provider-agnostic OAuth, McpHub, and stdio bridge", () => {
         await client.close();
       }
 
-      // 5. Cancel when nothing pending + Slack/Gmail setup hints
-      expect(await cancelConnectorSession({ name: "demo" }, dir)).toContain("No connector authorization is pending");
-      const slackHint = await startConnectorSession("slack", dir, hub);
-      expect(slackHint).toContain("mcp.slack.com/mcp");
-      expect(slackHint).toContain("oauth.clientId");
-      await expect(startConnectorSession("gmail", dir, hub)).rejects.toThrow("gws");
+      // Non-DCR apps route to Fluso
+      await expect(startConnectorSession("gmail", dir, hub)).rejects.toThrow("fluso");
+      await expect(startConnectorSession("slack", dir, hub)).rejects.toThrow("fluso");
 
-      // 6. Verify direct begin/complete helper + cancel clears pending
+      expect(await cancelConnectorSession({ name: "demo" }, dir)).toContain("No connector authorization is pending");
       const flow2 = await beginConnectorOAuth(dir, "demo", spec);
       expect(flow2.status).toBe("redirect");
       expect(await cancelConnectorSession({ name: "demo" }, dir)).toContain("Cancelled pending authorization for: demo");
       expect((await loadOAuthState(dir, "demo")).pending).toBeUndefined();
-      // Keep reference to completeConnectorOAuth tested via submitConnectorCallback above
       expect(typeof completeConnectorOAuth).toBe("function");
     } finally {
       await hub.close();
       await mockServer.stop(true);
+    }
+  });
+
+  test("exposes Fluso Cloud API tools over mcp-bridge.ts, deletes ephemeral threads, and surfaces approvals", async () => {
+    const dir = makeSharedDir();
+    const flusoToken = "fluso_testtoken_1234567890";
+    const deletedThreads: string[] = [];
+    let approvedOnce = false;
+
+    const mockFluso = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        if (req.headers.get("authorization") !== `Bearer ${flusoToken}`) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        const url = new URL(req.url);
+        if (url.pathname === "/v1/auth/me") {
+          return Response.json({ user: { email: "owner@example.com" }, access: "write" });
+        }
+        if (url.pathname === "/v1/mcp-oauth/connections") {
+          return Response.json({
+            data: [
+              { server_id: "google-workspace-gmail", display_name: "Gmail", status: "connected", tool_count: 24 },
+              { server_id: "native-slack", display_name: "Slack", status: "connected", tool_count: 53 },
+            ],
+          });
+        }
+        if (url.pathname === "/v1/threads" && req.method === "POST") {
+          const body = (await req.json()) as { input: string };
+          if (body.input.includes("send email")) {
+            return Response.json({ thread_id: "th-approve", input_id: "in-2", run_id: "run-2", disposition: "running" }, { status: 202 });
+          }
+          return Response.json({ thread_id: "th-read", input_id: "in-1", run_id: "run-1", disposition: "running" }, { status: 202 });
+        }
+        if (url.pathname === "/v1/threads/th-read/runs/run-1") {
+          return Response.json({ id: "run-1", thread_id: "th-read", status: "completed", outcome: "completed" });
+        }
+        if (url.pathname === "/v1/threads/th-read/items") {
+          return Response.json({
+            data: [{ id: "m-1", type: "message", role: "assistant", text: "Found thread: Your wallet can wait" }],
+            next_cursor: null,
+            revision: "rev-1",
+          });
+        }
+        if (url.pathname === "/v1/threads/th-read" && req.method === "DELETE") {
+          deletedThreads.push("th-read");
+          return Response.json({});
+        }
+        if (url.pathname === "/v1/threads/th-approve/runs/run-2") {
+          return Response.json({
+            id: "run-2",
+            thread_id: "th-approve",
+            status: approvedOnce ? "completed" : "waiting_action",
+            outcome: approvedOnce ? "completed" : null,
+          });
+        }
+        if (url.pathname === "/v1/threads/th-approve/state") {
+          return Response.json({
+            thread_id: "th-approve",
+            pending_actions: [
+              { id: "appr-1", kind: "mcp_tool", run_id: "run-2", url: "/v1/mcp-oauth/permissions/approvals/appr-1" },
+            ],
+          });
+        }
+        if (url.pathname === "/v1/mcp-oauth/permissions/approvals/appr-1" && req.method === "GET") {
+          return Response.json({
+            approval_id: "appr-1",
+            server_id: "google-workspace-gmail",
+            tool_name: "GMAIL__SEND_EMAIL",
+            arguments: { to: "alice@example.com" },
+            status: "pending",
+          });
+        }
+        if (url.pathname === "/v1/mcp-oauth/permissions/approvals/appr-1/decision" && req.method === "POST") {
+          const body = (await req.json()) as { decision: string; scope: string };
+          expect(body).toEqual({ decision: "allow", scope: "once" });
+          approvedOnce = true;
+          return Response.json({ approval_id: "appr-1", status: "allowed", decision_scope: "once" });
+        }
+        if (url.pathname === "/v1/threads/th-approve/items") {
+          return Response.json({
+            data: [{ id: "m-2", type: "message", role: "assistant", text: "Email sent." }],
+            next_cursor: null,
+            revision: "rev-2",
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    });
+
+    const hub = new McpHub(dir);
+    try {
+      const baseUrl = `${mockFluso.url.origin}/v1`;
+      await upsertConnector(dir, "fluso", { type: "fluso", baseUrl, enabled: true });
+      const connectMsg = await startConnectorSession(`fluso ${flusoToken}`, dir, hub);
+      expect(connectMsg).toContain("fluso is connected (5 tools)");
+      expect(connectMsg).toContain("Gmail, Slack");
+      expect(await getConnectorStatusMessage("fluso", dir)).toContain("developer token saved");
+
+      const caps = await hub.capabilities();
+      expect(caps).toEqual([
+        expect.objectContaining({
+          name: "fluso",
+          type: "fluso",
+          status: "connected",
+          tools: 5,
+          apps: ["Gmail", "Slack"],
+        }),
+      ]);
+
+      const mounted = await hub.getProviderMcpServers();
+      expect(mounted.map((s) => s.name)).toEqual(["fluso"]);
+
+      const client = new Client({ name: "test-provider", version: "1" }, { capabilities: {} });
+      const stdio = new StdioClientTransport({
+        command: mounted[0]!.command,
+        args: mounted[0]!.args,
+        stderr: "pipe",
+      });
+      try {
+        await client.connect(stdio);
+        const tools = await client.listTools();
+        expect(tools.tools.map((t) => t.name)).toContain("fluso_run");
+
+        // 1. Ephemeral read query completes and deletes its temporary thread
+        const readRes = await client.callTool({
+          name: "fluso_run",
+          arguments: { prompt: "Read Gmail thread Your wallet can wait" },
+        });
+        const readJson = JSON.parse(((readRes.content as Array<{ text: string }>)[0]!).text) as Record<string, unknown>;
+        expect(readJson["status"]).toBe("completed");
+        expect(readJson["answer"]).toBe("Found thread: Your wallet can wait");
+        expect(readJson["thread_deleted"]).toBe(true);
+        expect(deletedThreads).toEqual(["th-read"]);
+
+        // 2. Write query pauses on waiting_action and surfaces exact approval payload
+        const pauseRes = await client.callTool({
+          name: "fluso_run",
+          arguments: { prompt: "send email to alice" },
+        });
+        const pauseJson = JSON.parse(((pauseRes.content as Array<{ text: string }>)[0]!).text) as Record<string, unknown>;
+        expect(pauseJson["status"]).toBe("waiting_action");
+        expect(JSON.stringify(pauseJson["pending_actions"])).toContain("GMAIL__SEND_EMAIL");
+
+        // 3. Explicit once-approval resumes and completes
+        const approveRes = await client.callTool({
+          name: "fluso_approve",
+          arguments: { approval_id: "appr-1", decision: "allow", thread_id: "th-approve", run_id: "run-2" },
+        });
+        const approveJson = JSON.parse(((approveRes.content as Array<{ text: string }>)[0]!).text) as {
+          approval: { status: string };
+          run: { status: string; answer: string };
+        };
+        expect(approveJson.approval.status).toBe("allowed");
+        expect(approveJson.run.status).toBe("completed");
+        expect(approveJson.run.answer).toBe("Email sent.");
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await hub.close();
+      await mockFluso.stop(true);
     }
   });
 });

@@ -5,55 +5,42 @@ import { beginConnectorOAuth, completeConnectorOAuth, OAUTH_PENDING_TTL_MS } fro
 import {
   BUILTIN_CONNECTORS,
   clearPendingOAuth,
+  DEFAULT_FLUSO_BASE_URL,
   isAllowedConnectorUrl,
   isHttpConnectorReady,
   loadConnectors,
+  loadFlusoCredentials,
   loadOAuthState,
-  mcpVaultDir,
   normalizeConnectorName,
+  saveFlusoCredentials,
   upsertConnector,
   type ConnectorSpec,
   type HttpConnectorSpec,
 } from "./mcp-store.ts";
 
-export type ConnectorNotifier = (text: string) => Promise<void>;
-
-let notifier: ConnectorNotifier | null = null;
-export function setConnectorNotifier(send: ConnectorNotifier): void {
-  notifier = send;
-}
-export async function notifyConnector(text: string): Promise<void> {
-  if (notifier) await notifier(text);
-}
+const FLUSO_ROUTED_APPS = new Set([
+  "gmail",
+  "slack",
+  "google",
+  "gcalendar",
+  "calendar",
+  "gdrive",
+  "drive",
+  "gdocs",
+  "gsheets",
+  "gslides",
+]);
 
 export function normalizeConnector(value?: string): string | null {
   return normalizeConnectorName(value);
 }
 
-function parseConnectArgs(raw?: string): { name: string; url?: string } | null {
+function parseConnectArgs(raw?: string): { name: string; arg?: string } | null {
   const parts = (raw ?? "").trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0 || parts.length > 2) return null;
   const name = normalizeConnectorName(parts[0]);
   if (!name) return null;
-  if (parts[1] && !isAllowedConnectorUrl(parts[1])) {
-    throw new Error("Connector URL must start with https:// (or http://localhost / 127.0.0.1).");
-  }
-  return { name, url: parts[1] };
-}
-
-function slackSetupHint(sharedDir: string): string {
-  return [
-    `Slack's official MCP (https://mcp.slack.com/mcp) requires a Slack App client ID/secret (it does not support dynamic registration).`,
-    `Add a "slack" entry with oauth.clientId, oauth.clientSecret and oauth.redirectUri (e.g. http://localhost:3118/callback) to ${mcpVaultDir(sharedDir)}/connectors.json, then run /connector_connect slack.`,
-  ].join("\n\n");
-}
-
-function gmailSetupHint(sharedDir: string): string {
-  return [
-    `Gmail is not a dynamic-registration MCP. Configure one of these in ${mcpVaultDir(sharedDir)}/connectors.json:`,
-    `1) Local stdio (recommended): { "type": "stdio", "command": "gws", "args": ["mcp", "-s", "gmail,drive,calendar"] }`,
-    `2) Remote Google MCP: { "type": "http", "url": "https://gmailmcp.googleapis.com/mcp/v1", "oauth": { "clientId": "...", "clientSecret": "...", "authorizationEndpoint": "https://accounts.google.com/o/oauth2/v2/auth", "tokenEndpoint": "https://oauth2.googleapis.com/token", "scope": "https://www.googleapis.com/auth/gmail.readonly", "extraAuthParams": { "access_type": "offline", "prompt": "consent" } } }`,
-  ].join("\n\n");
+  return { name, arg: parts[1] };
 }
 
 async function resolveOrRegisterSpec(
@@ -64,6 +51,9 @@ async function resolveOrRegisterSpec(
   const configured = await loadConnectors(sharedDir);
   const existing = configured[name];
   if (explicitUrl) {
+    if (!isAllowedConnectorUrl(explicitUrl)) {
+      throw new Error("Connector URL must start with https:// (or http://localhost / 127.0.0.1).");
+    }
     const next: HttpConnectorSpec =
       existing?.type === "http"
         ? { ...existing, url: explicitUrl, enabled: true }
@@ -73,7 +63,11 @@ async function resolveOrRegisterSpec(
   if (existing) return existing;
   const preset = BUILTIN_CONNECTORS[name];
   if (preset) return upsertConnector(sharedDir, name, preset);
-  if (name === "gmail") throw new Error(gmailSetupHint(sharedDir));
+  if (FLUSO_ROUTED_APPS.has(name)) {
+    throw new Error(
+      `${name} is accessed through the "fluso" connector (connect it inside Fluso Cloud instead of direct OAuth). Run /connector_status fluso to check Fluso.`,
+    );
+  }
   const presetNames = Object.keys(BUILTIN_CONNECTORS).join(", ");
   throw new Error(
     `Unknown connector "${name}". Built-in presets: ${presetNames}. Or register a custom Streamable HTTP MCP with:\n/connector_connect ${name} https://...`,
@@ -87,26 +81,37 @@ export async function startConnectorSession(
 ): Promise<string> {
   const parsed = parseConnectArgs(raw);
   if (!parsed) {
-    return `Usage: /connector_connect <name> [https://mcp-url]\nBuilt-in presets: ${Object.keys(BUILTIN_CONNECTORS).join(", ")}`;
+    return `Usage: /connector_connect <name> [https://mcp-url | fluso-token]\nBuilt-in presets: ${Object.keys(BUILTIN_CONNECTORS).join(", ")}`;
   }
-  const spec = await resolveOrRegisterSpec(sharedDir, parsed.name, parsed.url);
-  if (spec.type === "stdio") {
-    const { tools } = await hub.probeConnector(parsed.name);
-    return `${parsed.name} (stdio) is ready (${tools} tools) across all AI providers.`;
+  if (parsed.name === "fluso") {
+    const existing = (await loadConnectors(sharedDir))["fluso"];
+    const baseUrl =
+      existing?.type === "fluso" ? existing.baseUrl : DEFAULT_FLUSO_BASE_URL;
+    if (parsed.arg) {
+      await saveFlusoCredentials(sharedDir, { baseUrl, token: parsed.arg });
+    }
+    await upsertConnector(sharedDir, "fluso", { type: "fluso", baseUrl, enabled: true });
+    const { tools, apps } = await hub.probeConnector("fluso");
+    const appSummary = apps?.length ? ` Connected Fluso apps: ${apps.join(", ")}.` : "";
+    return `fluso is connected (${tools} tools) across Antigravity, Codex and Claude Code.${appSummary}`;
+  }
+
+  const spec = await resolveOrRegisterSpec(sharedDir, parsed.name, parsed.arg);
+  if (spec.type === "fluso") {
+    const { tools, apps } = await hub.probeConnector(parsed.name);
+    const appSummary = apps?.length ? ` Connected Fluso apps: ${apps.join(", ")}.` : "";
+    return `${parsed.name} is connected (${tools} tools) across Antigravity, Codex and Claude Code.${appSummary}`;
   }
   if (spec.noAuth || (spec.headers && Object.keys(spec.headers).length > 0)) {
     await hub.invalidate(parsed.name);
     const { tools } = await hub.probeConnector(parsed.name);
-    return `${parsed.name} is connected (${tools} tools) across all AI providers.`;
-  }
-  if (parsed.name === "slack" && !spec.oauth?.clientId) {
-    return slackSetupHint(sharedDir);
+    return `${parsed.name} is connected (${tools} tools) across Antigravity, Codex and Claude Code.`;
   }
   await hub.invalidate(parsed.name);
   const flow = await beginConnectorOAuth(sharedDir, parsed.name, spec);
   if (flow.status === "authorized") {
     const { tools } = await hub.probeConnector(parsed.name);
-    return `${parsed.name} is already authorized and connected (${tools} tools) across all AI providers.`;
+    return `${parsed.name} is already authorized and connected (${tools} tools) across Antigravity, Codex and Claude Code.`;
   }
   return [
     `${parsed.name} authorization is ready (provider-agnostic; works on Antigravity, Codex and Claude Code).`,
@@ -146,7 +151,6 @@ async function findMatchingPending(
   const exact = candidates.find((c) => c.stateMatch);
   if (exact) return { name: exact.name, spec: exact.spec };
   if (candidates.length === 1) return { name: candidates[0]!.name, spec: candidates[0]!.spec };
-  // If no origin/path match, check whether exactly one non-expired pending flow exists so validateOAuthCallback can return its specific mismatch error.
   const allPending: Array<{ name: string; spec: HttpConnectorSpec }> = [];
   for (const [name, spec] of Object.entries(connectors)) {
     if (spec.type !== "http") continue;
@@ -177,7 +181,7 @@ export async function submitConnectorCallback(
 }
 
 export async function cancelConnectorSession(
-  options: { name?: string; notify?: boolean } = {},
+  options: { name?: string } = {},
   sharedDir = env.SHARED_FOLDER_PATH,
 ): Promise<string> {
   const connectors = await loadConnectors(sharedDir);
@@ -219,8 +223,13 @@ export async function getConnectorStatusMessage(
       lines.push(`${name} (${spec.type}): disabled`);
       continue;
     }
-    if (spec.type === "stdio") {
-      lines.push(`${name} (stdio): configured (${spec.command})`);
+    if (spec.type === "fluso") {
+      const creds = await loadFlusoCredentials(sharedDir);
+      lines.push(
+        creds?.token
+          ? `${name} (fluso): developer token saved (Gmail, Slack, Google Workspace via Fluso Cloud)`
+          : `${name} (fluso): token required (run /connector_connect fluso <token>)`,
+      );
       continue;
     }
     const state = await loadOAuthState(sharedDir, name);

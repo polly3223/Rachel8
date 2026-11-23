@@ -2,20 +2,20 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { z } from "zod";
 import { env } from "../config/env.ts";
 import { errorMessage } from "./errors.ts";
 import { KeyedQueue } from "./keyed-queue.ts";
-import { createOAuthFetch, VaultOAuthProvider } from "./mcp-oauth.ts";
+import { callFlusoTool, FLUSO_MCP_TOOLS, probeFlusoConnector } from "./mcp-fluso.ts";
+import { VaultOAuthProvider } from "./mcp-oauth.ts";
 import {
   isHttpConnectorReady,
   loadConnectors,
+  loadFlusoCredentials,
   loadOAuthState,
   normalizeConnectorName,
-  type ConnectorSpec,
   type HttpConnectorSpec,
 } from "./mcp-store.ts";
 
@@ -28,9 +28,10 @@ export interface ExternalMcpServer {
 
 export interface ConnectorCapability {
   name: string;
-  type: "http" | "stdio";
+  type: "http" | "fluso";
   status: "connected" | "auth_required" | "pending" | "disabled" | "error";
   tools?: number;
+  apps?: string[];
   expiresAt?: string;
   error?: string;
 }
@@ -97,7 +98,13 @@ export class McpHub {
     const name = normalizeConnectorName(decodeURIComponent(match[1]!));
     if (!name) return new Response("Invalid connector name", { status: 400 });
     try {
+      const connectors = await loadConnectors(this.sharedDir);
+      const spec = connectors[name];
+      if (!spec || !spec.enabled) {
+        return new Response(`Connector "${name}" is not active.`, { status: 404 });
+      }
       if (req.method === "GET" && match[2] === "tools") {
+        if (spec.type === "fluso") return Response.json({ tools: FLUSO_MCP_TOOLS });
         const result = await this.listHttpTools(name);
         return Response.json({ tools: result.tools });
       }
@@ -105,6 +112,9 @@ export class McpHub {
         const body = z
           .object({ name: z.string().min(1), arguments: z.record(z.string(), z.unknown()).default({}) })
           .parse(await req.json());
+        if (spec.type === "fluso") {
+          return Response.json(await callFlusoTool(this.sharedDir, spec, body.name, body.arguments));
+        }
         return Response.json(await this.callHttpTool(name, body.name, body.arguments));
       }
       return new Response("Method not allowed", { status: 405 });
@@ -143,12 +153,7 @@ export class McpHub {
       const useOAuth = !spec.noAuth && !(spec.headers && Object.keys(spec.headers).length > 0);
       const transport = new StreamableHTTPClientTransport(new URL(spec.url), {
         ...(spec.headers ? { requestInit: { headers: spec.headers } } : {}),
-        ...(useOAuth
-          ? {
-              authProvider: new VaultOAuthProvider(this.sharedDir, name, spec, false),
-              fetch: createOAuthFetch(),
-            }
-          : {}),
+        ...(useOAuth ? { authProvider: new VaultOAuthProvider(this.sharedDir, name, spec, false) } : {}),
       });
       const client = new Client({ name: "rachel8", version: "1" }, { capabilities: {} });
       try {
@@ -192,17 +197,13 @@ export class McpHub {
     for (const name of names) {
       const spec = connectors[name]!;
       if (!spec.enabled) continue;
-      if (spec.type === "stdio") {
-        servers.push({
-          name,
-          command: spec.command,
-          args: spec.args,
-          env: spec.env,
-        });
-        continue;
+      if (spec.type === "fluso") {
+        const creds = await loadFlusoCredentials(this.sharedDir);
+        if (!creds?.token) continue;
+      } else {
+        const state = await loadOAuthState(this.sharedDir, name);
+        if (!isHttpConnectorReady(spec, state)) continue;
       }
-      const state = await loadOAuthState(this.sharedDir, name);
-      if (!isHttpConnectorReady(spec, state)) continue;
       const socket = this.ensureSocket();
       servers.push({
         name,
@@ -214,30 +215,17 @@ export class McpHub {
     return servers;
   }
 
-  private async probeStdio(name: string, spec: Extract<ConnectorSpec, { type: "stdio" }>): Promise<number> {
-    const transport = new StdioClientTransport({
-      command: spec.command,
-      args: spec.args,
-      env: { ...process.env, ...spec.env } as Record<string, string>,
-      stderr: "pipe",
-    });
-    const client = new Client({ name: "rachel8", version: "1" }, { capabilities: {} });
-    try {
-      await withTimeout(client.connect(transport), PROBE_TIMEOUT_MS, `${name} connect`);
-      const res = await withTimeout(client.listTools(), PROBE_TIMEOUT_MS, `${name} listTools`);
-      return res.tools.length;
-    } finally {
-      await client.close().catch(() => {});
-    }
-  }
-
-  async probeConnector(name: string): Promise<{ tools: number }> {
+  async probeConnector(name: string): Promise<{ tools: number; apps?: string[] }> {
     const connectors = await loadConnectors(this.sharedDir);
     const spec = connectors[name];
     if (!spec) throw new Error(`Connector "${name}" is not configured.`);
     if (!spec.enabled) throw new Error(`Connector "${name}" is disabled.`);
-    if (spec.type === "stdio") {
-      return { tools: await this.probeStdio(name, spec) };
+    if (spec.type === "fluso") {
+      const probe = await withTimeout(probeFlusoConnector(this.sharedDir, spec), PROBE_TIMEOUT_MS, `${name} probe`);
+      return {
+        tools: FLUSO_MCP_TOOLS.length,
+        apps: probe.apps.filter((a) => a.status === "connected").map((a) => a.display_name),
+      };
     }
     const res = await withTimeout(this.listHttpTools(name), PROBE_TIMEOUT_MS, `${name} listTools`);
     return { tools: res.tools.length };
@@ -249,12 +237,20 @@ export class McpHub {
     return Promise.all(
       entries.map(async ([name, spec]): Promise<ConnectorCapability> => {
         if (!spec.enabled) return { name, type: spec.type, status: "disabled" };
-        if (spec.type === "stdio") {
+        if (spec.type === "fluso") {
+          const creds = await loadFlusoCredentials(this.sharedDir);
+          if (!creds?.token) return { name, type: "fluso", status: "auth_required" };
           try {
-            const tools = await this.probeStdio(name, spec);
-            return { name, type: "stdio", status: "connected", tools };
+            const probe = await withTimeout(probeFlusoConnector(this.sharedDir, spec), PROBE_TIMEOUT_MS, `${name} probe`);
+            return {
+              name,
+              type: "fluso",
+              status: "connected",
+              tools: FLUSO_MCP_TOOLS.length,
+              apps: probe.apps.filter((a) => a.status === "connected").map((a) => a.display_name),
+            };
           } catch (error) {
-            return { name, type: "stdio", status: "error", error: errorMessage(error) };
+            return { name, type: "fluso", status: "error", error: errorMessage(error) };
           }
         }
         const state = await loadOAuthState(this.sharedDir, name);

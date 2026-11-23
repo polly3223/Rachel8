@@ -26,54 +26,6 @@ export function defaultRedirectUri(name: string): string {
   return `${DEFAULT_CALLBACK_ORIGIN}/callback/${name}`;
 }
 
-export function createOAuthFetch(baseFetch: FetchLike = fetch): FetchLike {
-  return async (url, init) => {
-    const response = await baseFetch(url, init);
-    const reqHeaders = new Headers(init?.headers);
-    const reqContentType = reqHeaders.get("content-type")?.toLowerCase() ?? "";
-    const resContentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (
-      !reqContentType.includes("application/x-www-form-urlencoded") ||
-      !resContentType.includes("application/json")
-    ) {
-      return response;
-    }
-    const text = await response.text();
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      return new Response(text, { status: response.status, headers: response.headers });
-    }
-    let normalized: Record<string, unknown> = body;
-    // Slack oauth.v2.user.access can nest tokens under authed_user or return token_type="user".
-    if (body["ok"] === true && !body["access_token"] && typeof body["authed_user"] === "object" && body["authed_user"]) {
-      const authed = body["authed_user"] as Record<string, unknown>;
-      if (typeof authed["access_token"] === "string") {
-        normalized = {
-          ...body,
-          access_token: authed["access_token"],
-          refresh_token: authed["refresh_token"] ?? body["refresh_token"],
-          expires_in: authed["expires_in"] ?? body["expires_in"],
-          scope: authed["scope"] ?? body["scope"],
-          token_type: "Bearer",
-        };
-      }
-    }
-    if (
-      typeof normalized["access_token"] === "string" &&
-      (typeof normalized["token_type"] !== "string" ||
-        normalized["token_type"].toLowerCase() === "user")
-    ) {
-      normalized = { ...normalized, token_type: "Bearer" };
-    }
-    const headers = new Headers(response.headers);
-    headers.delete("content-length");
-    headers.delete("content-encoding");
-    return new Response(JSON.stringify(normalized), { status: response.status, headers });
-  };
-}
-
 function constantTimeEquals(a: string, b: string): boolean {
   const left = Buffer.from(a, "utf8");
   const right = Buffer.from(b, "utf8");
@@ -140,7 +92,7 @@ export class VaultOAuthProvider implements OAuthClientProvider {
       client_name: "Rachel8",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      token_endpoint_auth_method: this.spec.oauth?.clientSecret ? "client_secret_post" : "none",
+      token_endpoint_auth_method: "none",
       ...(this.spec.oauth?.scope ? { scope: this.spec.oauth.scope } : {}),
     };
   }
@@ -151,18 +103,11 @@ export class VaultOAuthProvider implements OAuthClientProvider {
   }
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
-    if (this.spec.oauth?.clientId) {
-      return {
-        client_id: this.spec.oauth.clientId,
-        ...(this.spec.oauth.clientSecret ? { client_secret: this.spec.oauth.clientSecret } : {}),
-      };
-    }
     const stored = await loadOAuthState(this.sharedDir, this.name);
     return stored.clientInfo as OAuthClientInformationMixed | undefined;
   }
 
   async saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
-    if (this.spec.oauth?.clientId) return;
     const stored = await loadOAuthState(this.sharedDir, this.name);
     await saveOAuthState(this.sharedDir, this.name, {
       ...stored,
@@ -206,29 +151,11 @@ export class VaultOAuthProvider implements OAuthClientProvider {
   }
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
-    if (this.spec.oauth?.authorizationEndpoint && this.spec.oauth?.tokenEndpoint) {
-      const authUrl = new URL(this.spec.oauth.authorizationEndpoint);
-      return {
-        authorizationServerUrl: authUrl.origin,
-        authorizationServerMetadata: {
-          issuer: authUrl.origin,
-          authorization_endpoint: this.spec.oauth.authorizationEndpoint,
-          token_endpoint: this.spec.oauth.tokenEndpoint,
-          response_types_supported: ["code"],
-          grant_types_supported: ["authorization_code", "refresh_token"],
-          code_challenge_methods_supported: ["S256"],
-          token_endpoint_auth_methods_supported: this.spec.oauth.clientSecret
-            ? ["client_secret_post", "client_secret_basic"]
-            : ["none"],
-        },
-      };
-    }
     const stored = await loadOAuthState(this.sharedDir, this.name);
     return stored.discoveryState as OAuthDiscoveryState | undefined;
   }
 
   async saveDiscoveryState(discoveryState: OAuthDiscoveryState): Promise<void> {
-    if (this.spec.oauth?.authorizationEndpoint && this.spec.oauth?.tokenEndpoint) return;
     const stored = await loadOAuthState(this.sharedDir, this.name);
     await saveOAuthState(this.sharedDir, this.name, {
       ...stored,
@@ -261,11 +188,7 @@ export class VaultOAuthProvider implements OAuthClientProvider {
         `Connector "${this.name}" needs authorization. Run /connector_connect ${this.name}.`,
       );
     }
-    const finalUrl = new URL(url.toString());
-    for (const [key, value] of Object.entries(this.spec.oauth?.extraAuthParams ?? {})) {
-      if (!finalUrl.searchParams.has(key)) finalUrl.searchParams.set(key, value);
-    }
-    const state = finalUrl.searchParams.get("state") ?? this.generatedState;
+    const state = url.searchParams.get("state") ?? this.generatedState;
     if (!state) throw new Error(`OAuth authorization URL for ${this.name} is missing state`);
     const stored = await loadOAuthState(this.sharedDir, this.name);
     await saveOAuthState(this.sharedDir, this.name, {
@@ -273,11 +196,11 @@ export class VaultOAuthProvider implements OAuthClientProvider {
       pending: {
         state,
         redirectUri: this.redirectUrl,
-        authorizationUrl: finalUrl.toString(),
+        authorizationUrl: url.toString(),
         createdAt: Date.now(),
       },
     });
-    this.authorizationUrl = finalUrl.toString();
+    this.authorizationUrl = url.toString();
   }
 }
 
@@ -294,7 +217,7 @@ export async function beginConnectorOAuth(
     const result = await auth(provider, {
       serverUrl: spec.url,
       scope: spec.oauth?.scope,
-      fetchFn: createOAuthFetch(fetchFn),
+      fetchFn,
     });
     if (result === "AUTHORIZED") return { status: "authorized" };
     if (!provider.authorizationUrl) {
@@ -307,9 +230,9 @@ export async function beginConnectorOAuth(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/registration/i.test(message) && !spec.oauth?.clientId) {
+    if (/registration/i.test(message)) {
       throw new Error(
-        `${name} does not support dynamic client registration. Add oauth.clientId (and clientSecret/redirectUri if required) for "${name}" in ${sharedDir}/vault/mcp/connectors.json, then run /connector_connect ${name}.`,
+        `${name} does not support dynamic client registration. Connect it inside Fluso Cloud and access it through the "fluso" connector instead.`,
       );
     }
     throw error;
@@ -333,7 +256,7 @@ export async function completeConnectorOAuth(
     serverUrl: spec.url,
     authorizationCode: code,
     scope: spec.oauth?.scope,
-    fetchFn: createOAuthFetch(fetchFn),
+    fetchFn,
   });
   if (result !== "AUTHORIZED") {
     throw new Error(`Token exchange for ${name} did not complete.`);

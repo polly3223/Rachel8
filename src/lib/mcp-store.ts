@@ -4,15 +4,11 @@ import { z } from "zod";
 
 const CONNECTOR_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const RESERVED_CONNECTOR_NAMES = new Set(["rachel"]);
+export const DEFAULT_FLUSO_BASE_URL = "https://api.fluso.ai/v1";
 
 export const oauthConfigSchema = z.object({
-  clientId: z.string().min(1).optional(),
-  clientSecret: z.string().min(1).optional(),
   redirectUri: z.url().optional(),
   scope: z.string().min(1).optional(),
-  authorizationEndpoint: z.url().optional(),
-  tokenEndpoint: z.url().optional(),
-  extraAuthParams: z.record(z.string(), z.string()).optional(),
 });
 
 export type OAuthConfig = z.infer<typeof oauthConfigSchema>;
@@ -30,37 +26,44 @@ export function isAllowedConnectorUrl(value: string): boolean {
   }
 }
 
+const allowedUrlSchema = z.url().refine(isAllowedConnectorUrl, {
+  message: "Connector URL must use https:// (or http://localhost / 127.0.0.1)",
+});
+
 export const httpConnectorSchema = z.object({
   type: z.literal("http"),
-  url: z.url().refine(isAllowedConnectorUrl, {
-    message: "Connector URL must use https:// (or http://localhost / 127.0.0.1)",
-  }),
+  url: allowedUrlSchema,
   enabled: z.boolean().default(true),
   headers: z.record(z.string(), z.string()).optional(),
   noAuth: z.boolean().optional(),
   oauth: oauthConfigSchema.optional(),
 });
 
-export const stdioConnectorSchema = z.object({
-  type: z.literal("stdio"),
-  command: z.string().min(1),
-  args: z.array(z.string()).default([]),
-  env: z.record(z.string(), z.string()).default({}),
+export const flusoConnectorSchema = z.object({
+  type: z.literal("fluso"),
+  baseUrl: allowedUrlSchema.default(DEFAULT_FLUSO_BASE_URL),
   enabled: z.boolean().default(true),
 });
 
 export const connectorSpecSchema = z.discriminatedUnion("type", [
   httpConnectorSchema,
-  stdioConnectorSchema,
+  flusoConnectorSchema,
 ]);
 
 export type HttpConnectorSpec = z.infer<typeof httpConnectorSchema>;
-export type StdioConnectorSpec = z.infer<typeof stdioConnectorSchema>;
+export type FlusoConnectorSpec = z.infer<typeof flusoConnectorSchema>;
 export type ConnectorSpec = z.infer<typeof connectorSpecSchema>;
 
 const connectorsFileSchema = z.object({
   connectors: z.record(z.string(), connectorSpecSchema).default({}),
 });
+
+export const flusoCredentialsSchema = z.object({
+  baseUrl: allowedUrlSchema.default(DEFAULT_FLUSO_BASE_URL),
+  token: z.string().min(1),
+});
+
+export type FlusoCredentials = z.infer<typeof flusoCredentialsSchema>;
 
 export const pendingOAuthSchema = z.object({
   state: z.string().min(1),
@@ -92,12 +95,12 @@ export const oauthStateSchema = z.object({
 
 export type OAuthState = z.infer<typeof oauthStateSchema>;
 
-export const BUILTIN_CONNECTORS: Record<string, HttpConnectorSpec> = {
+export const BUILTIN_CONNECTORS: Record<string, ConnectorSpec> = {
   linear: { type: "http", url: "https://mcp.linear.app/mcp", enabled: true },
   atlassian: { type: "http", url: "https://mcp.atlassian.com/v2/mcp", enabled: true },
   attio: { type: "http", url: "https://mcp.attio.com/mcp", enabled: true },
   posthog: { type: "http", url: "https://mcp.posthog.com/mcp", enabled: true },
-  slack: { type: "http", url: "https://mcp.slack.com/mcp", enabled: true },
+  fluso: { type: "fluso", baseUrl: DEFAULT_FLUSO_BASE_URL, enabled: true },
 };
 
 export function normalizeConnectorName(value?: string): string | null {
@@ -113,6 +116,10 @@ export function mcpVaultDir(sharedDir: string): string {
 
 export function connectorsFilePath(sharedDir: string): string {
   return join(mcpVaultDir(sharedDir), "connectors.json");
+}
+
+export function flusoCredentialsPath(sharedDir: string): string {
+  return join(mcpVaultDir(sharedDir), "fluso.json");
 }
 
 export function oauthStatePath(sharedDir: string, name: string): string {
@@ -187,6 +194,19 @@ export async function upsertConnector(
   all[safe] = validated;
   await saveConnectors(sharedDir, all);
   return validated;
+}
+
+export async function loadFlusoCredentials(sharedDir: string): Promise<FlusoCredentials | null> {
+  const raw = await readVaultJson(flusoCredentialsPath(sharedDir));
+  if (!raw) return null;
+  return flusoCredentialsSchema.parse(raw);
+}
+
+export async function saveFlusoCredentials(
+  sharedDir: string,
+  creds: FlusoCredentials,
+): Promise<void> {
+  await writeVaultJson(flusoCredentialsPath(sharedDir), flusoCredentialsSchema.parse(creds));
 }
 
 export async function loadOAuthState(sharedDir: string, name: string): Promise<OAuthState> {

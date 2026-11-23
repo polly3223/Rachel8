@@ -3,7 +3,6 @@ import { connectCodex, type RpcClient } from "./rpc.ts";
 import { resolveCliPath } from "./cli-path.ts";
 import { env } from "../config/env.ts";
 import { getReasoningEffort } from "../lib/reasoning-effort.ts";
-import { LINEAR_APP_ID } from "../lib/connector-config.ts";
 import type { Input, TurnOptions } from "./turn.ts";
 import type { Output } from "../lib/work-store.ts";
 import { persistArtifact, toolDefinitions } from "../lib/capabilities.ts";
@@ -186,7 +185,6 @@ export async function runCodex(options: TurnOptions, connection?: RpcClient): Pr
       approvalPolicy: "never",
       developerInstructions: options.instructions,
       config: {
-        apps: { [LINEAR_APP_ID]: { enabled: false } },
         web_search: "live",
         ...(externalMcp ? { mcp_servers: externalMcp } : {}),
       },
@@ -221,35 +219,6 @@ export async function runCodex(options: TurnOptions, connection?: RpcClient): Pr
     return { text: final.trim(), artifacts };
   } finally {
     options.signal.removeEventListener("abort", abort);
-    client.close();
-  }
-}
-
-export async function codexCapabilities(): Promise<unknown> {
-  const client = await connectCodex(await resolveCliPath("codex"));
-  try {
-    const servers: unknown[] = [];
-    let cursor: string | null = null;
-    do {
-      const page: {
-        data: { name: string; authStatus: string; tools: Record<string, unknown> }[];
-        nextCursor: string | null;
-      } = await client.call("mcpServerStatus/list", {
-        cursor,
-        limit: 100,
-        detail: "toolsAndAuthOnly",
-      });
-      servers.push(
-        ...page.data.map((s) => ({
-          name: s.name,
-          auth: s.authStatus,
-          tools: Object.keys(s.tools).length,
-        })),
-      );
-      cursor = page.nextCursor;
-    } while (cursor);
-    return servers;
-  } finally {
     client.close();
   }
 }

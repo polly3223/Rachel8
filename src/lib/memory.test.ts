@@ -5,6 +5,7 @@ import {
   buildTurnContext,
   formatLocalDate,
   initializeMemorySystem,
+  redactSecrets,
   saveContext,
   searchMemory,
 } from "./memory.ts";
@@ -51,4 +52,10 @@ describe("formatLocalDate", () => {
     expect(formatLocalDate(new Date("2026-07-16T22:30:00Z"))).toBe("2026-07-17");
     expect(formatLocalDate(new Date("2026-01-16T23:30:00Z"))).toBe("2026-01-17");
   });
+});
+
+test("redactSecrets masks Fluso developer tokens", () => {
+  expect(redactSecrets("token fluso_AbCdEfGhIjKlMnOpQrStUvWxYz123456")).toBe(
+    "token [credential redacted]",
+  );
 });
