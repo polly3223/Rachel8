@@ -1,7 +1,15 @@
 import { test, expect } from "bun:test";
 import { Context } from "grammy";
 import type { Message, UserFromGetMe } from "grammy/types";
-import { acceptMessage, buildInput, messageTime } from "./message.ts";
+import {
+  acceptMessage,
+  buildInput,
+  messageTime,
+  NATIVE_AUDIO_MAX_SECONDS,
+  NATIVE_MEDIA_MAX_BYTES,
+  NATIVE_VIDEO_MAX_SECONDS,
+  useNativeMedia,
+} from "./message.ts";
 import { getStore } from "../../ai/session-store.ts";
 import { telegram } from "../delivery.ts";
 import { bot } from "../bot.ts";
@@ -133,4 +141,108 @@ test("status keeps older active work visible and splits a full queue into valid 
   expect(sent.every((text) => text.length <= 4096)).toBe(true);
   expect(sent.join("\n")).toContain(`#${old.id} old-worker: running`);
   for (const run of [old, ...queued]) store.finish(run.id, "succeeded", { text: "" });
+});
+
+test("useNativeMedia enables native audio/video only on Antigravity within duration and size limits", () => {
+  expect(useNativeMedia("audio", "antigravity", 45, 50_000)).toBe(true);
+  expect(useNativeMedia("audio", "antigravity", NATIVE_AUDIO_MAX_SECONDS, NATIVE_MEDIA_MAX_BYTES)).toBe(true);
+  expect(useNativeMedia("audio", "antigravity", NATIVE_AUDIO_MAX_SECONDS + 1, 50_000)).toBe(false);
+  expect(useNativeMedia("audio", "antigravity", 30, NATIVE_MEDIA_MAX_BYTES + 1)).toBe(false);
+  expect(useNativeMedia("audio", "codex", 10, 10_000)).toBe(false);
+  expect(useNativeMedia("audio", "claudecode", 10, 10_000)).toBe(false);
+  expect(useNativeMedia("video", "antigravity", NATIVE_VIDEO_MAX_SECONDS, 2_000_000)).toBe(true);
+  expect(useNativeMedia("video", "antigravity", NATIVE_VIDEO_MAX_SECONDS + 1, 2_000_000)).toBe(false);
+  expect(useNativeMedia("video", "codex", 10, 1_000_000)).toBe(false);
+});
+
+test("Antigravity skips Groq transcription for short voice notes and instructs native read_file", async () => {
+  let transcribed = 0;
+  const voiceMsg = {
+    ...message(601),
+    text: undefined,
+    voice: { file_id: "voice-short", file_unique_id: "vs1", duration: 42, file_size: 80_000 },
+  } as unknown as Message;
+  const input = await buildInput({ messages: [voiceMsg] }, undefined, {
+    provider: "antigravity",
+    download: async (_id, name) => `/shared/telegram-files/${name}`,
+    transcribe: async () => {
+      transcribed += 1;
+      return "should not run";
+    },
+  });
+  expect(transcribed).toBe(0);
+  expect(input.text).toContain("Attachment saved at: /shared/telegram-files/voice.ogg");
+  expect(input.text).toContain("Native audio attachment (42s): call read_file on /shared/telegram-files/voice.ogg");
+  expect(input.text).not.toContain("Audio transcript");
+});
+
+test("Antigravity falls back to Groq transcription for long or oversized audio recordings", async () => {
+  const calls: string[] = [];
+  const longAudio = {
+    ...message(602),
+    text: undefined,
+    audio: { file_id: "audio-long", file_unique_id: "al1", duration: 750, file_name: "meeting.mp3", file_size: 5_000_000 },
+  } as unknown as Message;
+  const oversizedDoc = {
+    ...message(603),
+    text: undefined,
+    document: { file_id: "audio-big", file_unique_id: "ab1", file_name: "export.m4a", mime_type: "audio/mp4" },
+  } as unknown as Message;
+  const input = await buildInput({ messages: [longAudio, oversizedDoc] }, undefined, {
+    provider: "antigravity",
+    download: async (_id, name) => `/shared/telegram-files/${name}`,
+    fileSize: async () => NATIVE_MEDIA_MAX_BYTES + 1024,
+    transcribe: async (path) => {
+      calls.push(path);
+      return `transcript for ${path}`;
+    },
+  });
+  expect(calls).toEqual(["/shared/telegram-files/meeting.mp3", "/shared/telegram-files/export.m4a"]);
+  expect(input.text).toContain("Audio transcript (Groq fallback for long audio, 12m 30s): transcript for /shared/telegram-files/meeting.mp3");
+  expect(input.text).toContain("Audio transcript (Groq fallback for long audio): transcript for /shared/telegram-files/export.m4a");
+});
+
+test("Non-Antigravity providers keep Groq transcription for short voice messages", async () => {
+  let transcribed = 0;
+  const voiceMsg = {
+    ...message(604),
+    text: undefined,
+    voice: { file_id: "voice-codex", file_unique_id: "vc1", duration: 15, file_size: 20_000 },
+  } as unknown as Message;
+  const input = await buildInput({ messages: [voiceMsg] }, undefined, {
+    provider: "codex",
+    download: async (_id, name) => `/shared/telegram-files/${name}`,
+    transcribe: async () => {
+      transcribed += 1;
+      return "hello from whisper";
+    },
+  });
+  expect(transcribed).toBe(1);
+  expect(input.text).toContain("Audio transcript: hello from whisper");
+  expect(input.text).not.toContain("Native audio attachment");
+});
+
+test("Antigravity routes short videos natively via read_file and flags oversized videos", async () => {
+  let transcribed = 0;
+  const shortVideo = {
+    ...message(605),
+    text: undefined,
+    video_note: { file_id: "vn-short", file_unique_id: "vn1", length: 240, duration: 18, file_size: 900_000 },
+  } as unknown as Message;
+  const longVideo = {
+    ...message(606),
+    text: undefined,
+    video: { file_id: "vid-long", file_unique_id: "vl1", width: 1280, height: 720, duration: 420, file_name: "demo.mp4", file_size: 4_000_000 },
+  } as unknown as Message;
+  const input = await buildInput({ messages: [shortVideo, longVideo] }, undefined, {
+    provider: "antigravity",
+    download: async (_id, name) => `/shared/telegram-files/${name}`,
+    transcribe: async () => {
+      transcribed += 1;
+      return "unused";
+    },
+  });
+  expect(transcribed).toBe(0);
+  expect(input.text).toContain("Native video attachment (18s): call read_file on /shared/telegram-files/video-note.mp4");
+  expect(input.text).toContain("Video attachment (7m 0s) exceeds the inline native limit");
 });

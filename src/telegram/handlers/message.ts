@@ -1,5 +1,7 @@
 import type { Message } from "grammy/types";
 import type { BotContext } from "../bot.ts";
+import { env } from "../../config/env.ts";
+import type { AIProvider } from "../../ai/provider.ts";
 import { getStore } from "../../ai/session-store.ts";
 import { steerConversation } from "../../ai/index.ts";
 import { downloadTelegramFile } from "./file.ts";
@@ -7,6 +9,38 @@ import { transcribeAudio } from "./transcribe.ts";
 import { telegram } from "../delivery.ts";
 import { redactRecord } from "../../lib/memory.ts";
 import type { Input } from "../../ai/turn.ts";
+
+export const NATIVE_AUDIO_MAX_SECONDS = 600;
+export const NATIVE_VIDEO_MAX_SECONDS = 300;
+export const NATIVE_MEDIA_MAX_BYTES = 15 * 1024 * 1024;
+
+export function useNativeMedia(
+  kind: "audio" | "video",
+  provider: AIProvider = env.AI_PROVIDER,
+  durationSeconds?: number,
+  fileBytes?: number,
+): boolean {
+  if (provider !== "antigravity") return false;
+  const maxSeconds = kind === "audio" ? NATIVE_AUDIO_MAX_SECONDS : NATIVE_VIDEO_MAX_SECONDS;
+  if (durationSeconds !== undefined && durationSeconds > maxSeconds) return false;
+  if (fileBytes !== undefined && fileBytes > NATIVE_MEDIA_MAX_BYTES) return false;
+  return true;
+}
+
+function formatDuration(seconds?: number): string {
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "";
+  const total = Math.round(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+export interface BuildInputDeps {
+  provider?: AIProvider;
+  download?: (fileId: string, name: string, signal?: AbortSignal) => Promise<string>;
+  transcribe?: (filePath: string, signal?: AbortSignal) => Promise<string>;
+  fileSize?: (filePath: string) => Promise<number | undefined>;
+}
 
 export interface Incoming {
   messages: Message[];
@@ -39,7 +73,23 @@ export function messageText(message: Message): string {
   return message.text ?? message.caption ??
     (message.rich_message ? JSON.stringify(message.rich_message) : "");
 }
-export async function buildInput(incoming: Incoming, signal?: AbortSignal): Promise<Input> {
+export async function buildInput(
+  incoming: Incoming,
+  signal?: AbortSignal,
+  deps: BuildInputDeps = {},
+): Promise<Input> {
+  const provider = deps.provider ?? env.AI_PROVIDER;
+  const download =
+    deps.download ??
+    ((fileId: string, name: string, abort?: AbortSignal) =>
+      downloadTelegramFile({ api: telegram }, fileId, name, abort));
+  const transcribe = deps.transcribe ?? transcribeAudio;
+  const fileSize =
+    deps.fileSize ??
+    (async (filePath: string) => {
+      const file = Bun.file(filePath);
+      return (await file.exists()) ? file.size : undefined;
+    });
   const texts: string[] = [],
     images: string[] = [];
   const visited = new Set<string>();
@@ -49,10 +99,13 @@ export async function buildInput(incoming: Incoming, signal?: AbortSignal): Prom
       `${quoted ? "Quoted message (context): " : ""}${messageTime(message.date)} [Telegram message ${message.message_id}] ${messageText(message)}`,
     );
     if (!quoted && message.reply_to_message) await read(message.reply_to_message, true);
-    let media: { file_id: string; file_name?: string } | undefined,
+    let media:
+        | { file_id: string; file_name?: string; mime_type?: string; duration?: number; file_size?: number }
+        | undefined,
       name = "file",
       image = false,
-      audio = false;
+      audio = false,
+      video = false;
     if (message.photo) {
       media = message.photo.at(-1);
       name = "photo.jpg";
@@ -60,7 +113,10 @@ export async function buildInput(incoming: Incoming, signal?: AbortSignal): Prom
     } else if (message.document) {
       media = message.document;
       name = media.file_name ?? name;
+      const mime = media.mime_type ?? "";
       image = /\.(png|jpe?g|webp)$/i.test(name);
+      audio = /\.(ogg|opus|mp3|m4a|wav|aac|flac)$/i.test(name) || /^audio\//i.test(mime);
+      video = /\.(mp4|mov|webm|m4v)$/i.test(name) || /^video\//i.test(mime);
     } else if (message.voice) {
       media = message.voice;
       name = "voice.ogg";
@@ -72,12 +128,15 @@ export async function buildInput(incoming: Incoming, signal?: AbortSignal): Prom
     } else if (message.video) {
       media = message.video;
       name = media.file_name ?? "video.mp4";
+      video = true;
     } else if (message.video_note) {
       media = message.video_note;
       name = "video-note.mp4";
+      video = true;
     } else if (message.animation) {
       media = message.animation;
       name = media.file_name ?? "animation.mp4";
+      video = true;
     } else if (message.sticker) {
       media = message.sticker;
       name = message.sticker.is_animated
@@ -90,15 +149,40 @@ export async function buildInput(incoming: Incoming, signal?: AbortSignal): Prom
     }
     if (media && !visited.has(media.file_id)) {
       visited.add(media.file_id);
-      const path = await downloadTelegramFile({ api: telegram }, media.file_id, name, signal);
+      const path = await download(media.file_id, name, signal);
       texts.push(`Attachment saved at: ${path}`);
       if (image) images.push(path);
-      if (audio) {
-        try {
-          texts.push(`Audio transcript: ${await transcribeAudio(path, signal)}`);
-        } catch {
-          signal?.throwIfAborted();
-          texts.push("Automatic transcription failed; the original audio is saved above.");
+      if (audio || video) {
+        const size = media.file_size ?? (await fileSize(path));
+        const dur = formatDuration(media.duration);
+        if (audio) {
+          if (useNativeMedia("audio", provider, media.duration, size)) {
+            texts.push(
+              `Native audio attachment${dur ? ` (${dur})` : ""}: call read_file on ${path} to listen directly before replying.`,
+            );
+          } else {
+            try {
+              const transcript = await transcribe(path, signal);
+              texts.push(
+                provider === "antigravity"
+                  ? `Audio transcript (Groq fallback for long audio${dur ? `, ${dur}` : ""}): ${transcript}`
+                  : `Audio transcript: ${transcript}`,
+              );
+            } catch {
+              signal?.throwIfAborted();
+              texts.push("Automatic transcription failed; the original audio is saved above.");
+            }
+          }
+        } else if (video) {
+          if (useNativeMedia("video", provider, media.duration, size)) {
+            texts.push(
+              `Native video attachment${dur ? ` (${dur})` : ""}: call read_file on ${path} to inspect it directly before replying.`,
+            );
+          } else if (provider === "antigravity") {
+            texts.push(
+              `Video attachment${dur ? ` (${dur})` : ""} exceeds the inline native limit; inspect it selectively if needed.`,
+            );
+          }
         }
       }
     }
