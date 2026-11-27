@@ -23,6 +23,8 @@ export const envSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_VOICE_ID: z.string().optional(),
   ELEVENLABS_MODEL_ID: z.string().optional(),
+  ELEVENLABS_VOICE_SPEED: z.string().optional(),
+  ELEVENLABS_AMBIENT_PATH: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

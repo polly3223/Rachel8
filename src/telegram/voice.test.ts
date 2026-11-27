@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { fileMethod } from "./delivery.ts";
 import {
   DEFAULT_ELEVENLABS_MODEL_ID,
+  DEFAULT_ELEVENLABS_SPEED,
   DEFAULT_ELEVENLABS_VOICE_ID,
   ELEVENLABS_OUTPUT_FORMAT,
   MAX_SPEAK_CHARS,
   loadElevenLabsKey,
+  resolveAmbientPath,
+  resolveSpeed,
   synthesizeSpeech,
 } from "./voice.ts";
 
@@ -45,8 +48,33 @@ describe("loadElevenLabsKey", () => {
   });
 });
 
+describe("speed and ambient resolution", () => {
+  test("defaults speed to 1.15 and rejects out-of-range values", () => {
+    expect(resolveSpeed(undefined, undefined)).toBe(DEFAULT_ELEVENLABS_SPEED);
+    expect(resolveSpeed(1.2, undefined)).toBe(1.2);
+    expect(resolveSpeed(undefined, "1.05")).toBe(1.05);
+    expect(() => resolveSpeed(1.5, undefined)).toThrow("Invalid ElevenLabs voice speed");
+    expect(() => resolveSpeed(0.5, undefined)).toThrow("Invalid ElevenLabs voice speed");
+  });
+
+  test("resolves shared ambient file when present and respects off/none", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rachel-amb-"));
+    try {
+      expect(await resolveAmbientPath(dir, undefined)).toBeNull();
+      mkdirSync(join(dir, "voice"), { recursive: true });
+      const file = join(dir, "voice", "ambient-office.mp3");
+      await Bun.write(file, "stub");
+      expect(await resolveAmbientPath(dir, undefined)).toBe(file);
+      expect(await resolveAmbientPath(dir, "off")).toBeNull();
+      expect(await resolveAmbientPath(dir, "none")).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("synthesizeSpeech", () => {
-  test("calls ElevenLabs TTS with opus_48000_64 and parses character-cost", async () => {
+  test("calls ElevenLabs TTS with opus_48000_64, speed 1.15, and parses character-cost", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fakeOgg = new Uint8Array([0x4f, 0x67, 0x67, 0x53, ...new Array(32).fill(1)]);
     const mockFetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -69,7 +97,9 @@ describe("synthesizeSpeech", () => {
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
       text: "Ciao Lorenzo!",
       model_id: DEFAULT_ELEVENLABS_MODEL_ID,
+      voice_settings: { speed: DEFAULT_ELEVENLABS_SPEED },
     });
+    expect(result.speed).toBe(DEFAULT_ELEVENLABS_SPEED);
     expect(result.characters).toBe(13);
     expect(result.creditsUsed).toBe(12);
     expect(result.audio.byteLength).toBe(fakeOgg.byteLength);
