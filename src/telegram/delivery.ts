@@ -31,11 +31,12 @@ export async function sendChunks(chat: number, text: string, markdown = true): P
 export function fileMethod(
   path: string,
   original = false,
-): "sendDocument" | "sendAnimation" | "sendPhoto" | "sendVideo" | "sendAudio" {
+): "sendDocument" | "sendAnimation" | "sendPhoto" | "sendVideo" | "sendAudio" | "sendVoice" {
   if (original) return "sendDocument";
   if (/\.gif$/i.test(path)) return "sendAnimation";
   if (/\.(png|jpe?g)$/i.test(path)) return "sendPhoto";
   if (/\.(mp4|mov)$/i.test(path)) return "sendVideo";
+  if (/\.(ogg|oga|opus)$/i.test(path)) return "sendVoice";
   if (/\.(mp3|m4a)$/i.test(path)) return "sendAudio";
   return "sendDocument";
 }

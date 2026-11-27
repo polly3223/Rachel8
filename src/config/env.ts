@@ -20,6 +20,9 @@ export const envSchema = z.object({
   CODEX_MODEL: z.string().optional(),
   ANTIGRAVITY_MODEL: z.string().optional(),
   ANTIGRAVITY_AUTO_APPROVE_TOOLS: z.string().optional(),
+  ELEVENLABS_API_KEY: z.string().optional(),
+  ELEVENLABS_VOICE_ID: z.string().optional(),
+  ELEVENLABS_MODEL_ID: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

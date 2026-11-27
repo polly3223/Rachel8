@@ -112,7 +112,7 @@ bot.command("capabilities", (ctx) => {
     .then((connectors) =>
       sendChunks(
         ctx.chat.id,
-        `Configured connectors (provider: ${env.AI_PROVIDER}):\n${JSON.stringify(connectors, null, 2)}\n\nBuilt-in tools: rachel_memory, rachel_tasks, rachel_workers, rachel_artifact. Local skills: skills/ and .agents/skills/. Controls: /status, /stop, /resume, /answer, /connector_status.`,
+        `Configured connectors (provider: ${env.AI_PROVIDER}):\n${JSON.stringify(connectors, null, 2)}\n\nBuilt-in tools: rachel_memory, rachel_tasks, rachel_workers, rachel_artifact, rachel_speak. Local skills: skills/ and .agents/skills/. Controls: /status, /stop, /resume, /answer, /connector_status.`,
         false,
       ),
     )
